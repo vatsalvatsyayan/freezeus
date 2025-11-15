@@ -57,6 +57,7 @@ Thumbs.db
 data/**
 !data/.gitkeep        # keep the empty folder if you want it in the repo
 out/**
+!out/.gitkeep         # keep the empty folder in the repo
 tmp/**
 dump/**
 dur/**

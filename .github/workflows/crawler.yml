@@ -78,6 +78,7 @@ jobs:
             out/*/manifest.json
             out/*/llm/*.jobs.json
           retention-days: 7
+          if-no-files-found: ignore  # Don't fail if no files found
 
       - name: Report success
         if: success()
