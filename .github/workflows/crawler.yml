@@ -1,0 +1,92 @@
+name: Run job crawler
+
+on:
+  schedule:
+    # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
+    - cron: "0 */6 * * *"
+  # Allow manual runs from the Actions tab
+  workflow_dispatch: {}
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 100  # Maximum runtime: 100 minutes
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13.5
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13.5"
+          cache: 'pip'  # Cache pip dependencies for faster runs
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers with system deps
+        run: |
+          python -m playwright install --with-deps chromium
+
+      - name: Create configs/.env from GitHub Secrets
+        run: |
+          mkdir -p configs
+          cat <<EOF > configs/.env
+          # Gemini / LLM config
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL=${{ secrets.GEMINI_MODEL || 'models/gemini-1.5-pro-latest' }}
+          LLM_MAX_HTML_CHARS=250000
+          LLM_RPM=20
+          LLM_TIMEOUT_S=60
+
+          # Supabase config
+          SUPABASE_URL=${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_ENABLED=1
+          SUPABASE_JOBS_TABLE=jobs
+          EOF
+
+      - name: Show configs/.env (redacted)
+        run: |
+          echo "configs/.env created with the following keys:"
+          sed 's/=.*/=[REDACTED]/' configs/.env
+
+      - name: Verify configs/urls.txt exists
+        run: |
+          if [ ! -f configs/urls.txt ]; then
+            echo "ERROR: configs/urls.txt not found"
+            exit 1
+          fi
+          echo "Found $(wc -l < configs/urls.txt) URLs to crawl"
+
+      - name: Run crawler (headless)
+        run: |
+          python -m src.crawler.multi_capture \
+            --urls configs/urls.txt \
+            --headless \
+            --with-llm
+
+      - name: Upload crawl artifacts (optional)
+        if: always()  # Upload even if crawler fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: crawl-results-${{ github.run_number }}
+          path: |
+            out/*/manifest.json
+            out/*/llm/*.jobs.json
+          retention-days: 7
+
+      - name: Report success
+        if: success()
+        run: |
+          echo "✅ Crawl completed successfully"
+          echo "Check Supabase for new job listings"
+
+      - name: Report failure
+        if: failure()
+        run: |
+          echo "❌ Crawl failed - check logs above"
+          exit 1

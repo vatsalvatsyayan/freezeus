@@ -2,3 +2,12 @@ https://careers.servicenow.com/jobs/?search=software+engineer&team=Early+in+Care
 https://www.databricks.com/company/careers/open-positions?department=University%20Recruiting&location=all
 https://slack.com/careers#openings
 https://www.amazon.jobs/content/en/career-programs/university/jobs-for-grads?country%5B%5D=US&employment-type%5B%5D=Full+time&role-type%5B%5D=0
+https://jobs.apple.com/en-us/search?search=Software+Engineer&sort=newest&location=united-states-USA
+https://careers.oracle.com/en/sites/jobsearch/jobs?keyword=software+engineer&lastSelectedFacet=LOCATIONS&location=United+States&locationId=300000000149325&mode=location&selectedFlexFieldsFacets=%22AttributeChar13%7CCampus%7C%7CAttributeChar29%7CIndividual+Contributor%7C%7CAttributeChar4%7CEmployee%22&selectedLocationsFacet=300000000149325
+https://www.uber.com/us/en/careers/list/?department=University
+https://www.lyft.com/careers/early-talent?location=u.s.%2520anywhere
+https://stripe.com/jobs/search?office_locations=North+America--Atlanta&office_locations=North+America--Chicago&office_locations=North+America--New+York&office_locations=North+America--San+Francisco+Bridge+HQ&office_locations=North+America--Seattle&office_locations=North+America--South+San+Francisco&office_locations=North+America--Washington+DC&tags=University
+https://block.xyz/careers/jobs?businessUnits[]=square&locations[]=Bay%20Area%2C%20CA%2C%20US&locations[]=Boston%2C%20MA%2C%20US&locations[]=Chicago%2C%20IL%2C%20US&locations[]=Denver%2C%20CO%2C%20US&locations[]=Las%20Vegas%2C%20NV%2C%20US&locations[]=Los%20Angeles%2C%20CA%2C%20US&locations[]=Monterey%20Park%2C%20CA%2C%20US&locations[]=New%20York%2C%20NY%2C%20US&locations[]=Phoenix%2C%20AZ%2C%20US&locations[]=Portland%2C%20OR%2C%20US&locations[]=Raleigh%2C%20NC%2C%20US&locations[]=Salt%20Lake%20City%2C%20UT%2C%20US&locations[]=San%20Francisco%2C%20CA%2C%20US&locations[]=San%20Jose%2C%20CA%2C%20US&locations[]=Seattle%2C%20WA%2C%20US&locations[]=Washington%2C%20DC%2C%20US&query=software%20engineer
+https://bloomberg.avature.net/careers/SearchJobs/software%20engineer?1686=%5B55478%5D&1686_format=2312&listFilterMode=1&jobRecordsPerPage=12&
+https://careers.adobe.com/us/en/search-results?qkexperienceLevel=University%20Graduate
+https://careers.servicenow.com/jobs/?search=software+engineer&team=Early+in+Career&country=United+States&pagesize=20#results
