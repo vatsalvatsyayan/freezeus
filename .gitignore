@@ -1,0 +1,65 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.pyre/
+.pytype/
+ruff_cache/
+.cache/
+.coverage*
+htmlcov/
+.dmypy.json
+
+# --- Notebooks / temp ---
+.ipynb_checkpoints/
+*.log
+*.tmp
+
+# --- Playwright (reports, traces, screenshots, videos) ---
+playwright/.cache/
+test-results/
+playwright-report/
+blob-report/
+*.trace.zip
+*.zip
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.webm
+
+# --- Env & secrets ---
+.env
+.env.*
+!.env.example
+
+# --- OS / Editors ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Project-specific: keep only code, ignore captured DOM & outputs ---
+data/**
+!data/.gitkeep        # keep the empty folder if you want it in the repo
+out/**
+tmp/**
+dump/**
+dur/**
+
+# If you later add JS tooling, uncomment to ignore installed deps:
+# node_modules/
