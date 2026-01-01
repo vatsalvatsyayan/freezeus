@@ -56,17 +56,17 @@ def load_extraction_prompt() -> str:
             print(f"[LLM] Warning: Failed to load prompt file: {e}. Using default.")
     return PROMPT_PREFIX  # Fallback to hardcoded
 
-def normalize_job_url(job_url: str, source_url: str, source_domain: str) -> str:
+def normalize_job_url(job_url: str, source_url: Optional[str], source_domain: str) -> Optional[str]:
     """
     Ensure job_url is a complete absolute URL.
 
     Args:
         job_url: URL from LLM (might be relative)
-        source_url: The page URL we crawled
+        source_url: The page URL we crawled (can be None)
         source_domain: Domain from directory name
 
     Returns:
-        Complete absolute URL with protocol
+        Complete absolute URL with protocol, or None if job_url is empty
     """
     if not job_url:
         return None

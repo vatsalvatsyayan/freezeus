@@ -104,6 +104,7 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
 
         # Check if job exists (to preserve first_seen_at)
         is_new = True
+        existing_first_seen = None
         try:
             existing = client.table(JOBS_TABLE) \
                 .select("job_url, first_seen_at") \
@@ -111,9 +112,12 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
                 .limit(1) \
                 .execute()
             is_new = len(existing.data) == 0
+            # Preserve existing first_seen_at to avoid race conditions
+            if not is_new and existing.data[0].get('first_seen_at'):
+                existing_first_seen = existing.data[0]['first_seen_at']
         except Exception as e:
             _log(f"Error checking existing job: {e}")
-            is_new = True  # Assume new if check fails
+            is_new = False  # Safer: don't set first_seen_at if check fails
 
         # Extract from JSONB
         raw_extra = j.get("extra") or {}
@@ -154,9 +158,12 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
             "raw_job": j,
         }
 
-        # Only set first_seen_at for NEW jobs
+        # Set first_seen_at: new jobs get current time, existing jobs preserve original
         if is_new:
             row["first_seen_at"] = current_time
+        elif existing_first_seen:
+            # Preserve existing first_seen_at to prevent race condition overwrites
+            row["first_seen_at"] = existing_first_seen
 
         rows.append(row)
 
