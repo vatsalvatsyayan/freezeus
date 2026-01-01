@@ -2,6 +2,7 @@
 import os
 from typing import Any, Dict, List
 from pathlib import Path
+from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -70,6 +71,8 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
 
     - Uses job_url as unique key (on_conflict).
     - If job_url is missing, that job is skipped.
+    - Tracks first_seen_at (only for new jobs) and last_seen_at (updated on every crawl).
+    - Extracts data from JSONB fields (raw_extra, raw_job) to main columns.
     """
     client = _init_client()
     if client is None:
@@ -80,48 +83,95 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
     jobs = cleaned_page.get("jobs") or []
 
     rows: List[Dict[str, Any]] = []
+    current_time = datetime.now(timezone.utc).isoformat()
+    skipped = 0
+
     for j in jobs:
         if not isinstance(j, dict):
             continue
 
         job_url = j.get("job_url")
+
+        # Skip only if completely missing (per user preference: insert with warning)
         if not job_url:
-            # No stable URL → can't use as unique key; skip
+            _log(f"Skipping job without URL: {j.get('title', 'Unknown')}")
+            skipped += 1
             continue
+
+        # Warn about incomplete URLs but still insert them
+        if not job_url.startswith('http'):
+            _log(f"⚠️  WARNING: Job has incomplete URL (will still insert): {job_url}")
+
+        # Check if job exists (to preserve first_seen_at)
+        is_new = True
+        try:
+            existing = client.table(JOBS_TABLE) \
+                .select("job_url, first_seen_at") \
+                .eq("job_url", job_url) \
+                .limit(1) \
+                .execute()
+            is_new = len(existing.data) == 0
+        except Exception as e:
+            _log(f"Error checking existing job: {e}")
+            is_new = True  # Assume new if check fails
+
+        # Extract from JSONB
+        raw_extra = j.get("extra") or {}
 
         row: Dict[str, Any] = {
             "job_url": job_url,
             "title": j.get("title"),
-            "company": j.get("company") or None,             # optional, if you add later
+            "company": j.get("company") or None,
             "location": j.get("location"),
+
+            # NEW: Country field
+            "country": j.get("country") or "Unknown",
+
             "team_or_category": j.get("team_or_category"),
             "employment_type": j.get("employment_type"),
-            "date_posted_raw": j.get("date_posted"),
             "office_or_remote": j.get("office_or_remote"),
-
-            # Match LLM fields: `seniority_level` and `job_description`
             "seniority_level": j.get("seniority_level"),
-            "job_description": j.get("job_description"),
+            "seniority_bucket": j.get("seniority_bucket") or "unknown",
 
+            # Date tracking
+            "date_posted_raw": j.get("date_posted"),
+            "last_seen_at": current_time,
+
+            # Extract from JSONB
+            "job_description": raw_extra.get("job_description") or j.get("job_description"),
+            "weekly_hours": raw_extra.get("weekly_hours"),
+            "apply_url": raw_extra.get("apply_url"),
+            "job_id": raw_extra.get("job_id"),
+            "role_number": raw_extra.get("role_number"),
+
+            # Source tracking
             "source_domain": domain,
             "source_page_url": source_url,
             "source_page_title": page_title,
 
-            # Store extra stuff for future experiments
-            "raw_extra": j.get("extra") or {},
+            # Raw storage
+            "raw_extra": raw_extra,
             "raw_job": j,
         }
+
+        # Only set first_seen_at for NEW jobs
+        if is_new:
+            row["first_seen_at"] = current_time
 
         rows.append(row)
 
     if not rows:
-        _log(f"{domain}: no rows to upsert for page '{page_title}' ({source_url})")
+        if skipped > 0:
+            _log(f"{domain}: skipped all {skipped} jobs (no valid URLs) for page '{page_title}'")
+        else:
+            _log(f"{domain}: no rows to upsert for page '{page_title}' ({source_url})")
         return
 
     try:
         # on_conflict=job_url → de-duplicate by job URL
-        _log(f"{domain}: upserting {len(rows)} jobs into '{JOBS_TABLE}'")
+        _log(f"{domain}: upserting {len(rows)} jobs into '{JOBS_TABLE}' (skipped {skipped})")
         client.table(JOBS_TABLE).upsert(rows, on_conflict="job_url").execute()
+        _log(f"✅ Successfully upserted {len(rows)} jobs from {domain}")
     except Exception as e:
         # Fail *softly*: we don't want to kill the whole crawl
-        _log(f"upsert error ({domain}): {e}")
+        _log(f"❌ Upsert error ({domain}): {e}")

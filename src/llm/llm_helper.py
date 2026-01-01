@@ -3,6 +3,7 @@ import os, json, re, time, math
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
+from urllib.parse import urljoin
 
 # Always load project .env locally (no system env requirement)
 load_dotenv(dotenv_path=Path("configs/.env"), override=True)
@@ -43,6 +44,58 @@ try:
 except Exception as e:
     _SUPABASE_IMPORTED_OK = False
     _SUPABASE_IMPORT_ERR = e
+
+# ---------------- Helper Functions ----------------
+def load_extraction_prompt() -> str:
+    """Load extraction prompt from configs file with fallback to default."""
+    prompt_path = Path("configs/llm_extraction_prompt.txt")
+    if prompt_path.exists():
+        try:
+            return prompt_path.read_text(encoding='utf-8')
+        except Exception as e:
+            print(f"[LLM] Warning: Failed to load prompt file: {e}. Using default.")
+    return PROMPT_PREFIX  # Fallback to hardcoded
+
+def normalize_job_url(job_url: str, source_url: str, source_domain: str) -> str:
+    """
+    Ensure job_url is a complete absolute URL.
+
+    Args:
+        job_url: URL from LLM (might be relative)
+        source_url: The page URL we crawled
+        source_domain: Domain from directory name
+
+    Returns:
+        Complete absolute URL with protocol
+    """
+    if not job_url:
+        return None
+
+    job_url = job_url.strip()
+
+    # Already complete?
+    if job_url.startswith(('http://', 'https://')):
+        return job_url
+
+    # Try source_url first
+    if source_url:
+        try:
+            return urljoin(source_url, job_url)
+        except Exception as e:
+            print(f"[LLM] URL join failed: {source_url} + {job_url}: {e}")
+
+    # Fallback to domain
+    if source_domain:
+        if not source_domain.startswith(('http://', 'https://')):
+            source_domain = f"https://{source_domain}"
+        try:
+            return urljoin(source_domain, job_url)
+        except Exception as e:
+            print(f"[LLM] URL construct failed from domain: {e}")
+
+    # Cannot normalize
+    print(f"[LLM] Cannot normalize URL: '{job_url}' (no source)")
+    return job_url
 
 # ---------------- Prompt ----------------
 PROMPT_PREFIX = """You are an expert at parsing career and job listing websites.
@@ -430,9 +483,12 @@ def _llm_call(model_name: str, html_text: str, source_url: str, page_title: str)
     if was_trunc:
         _log(f"html truncated to {len(html_text):,} chars (budget={MAX_HTML_CHARS:,}).")
 
+    # Load prompt from file (with fallback to hardcoded)
+    prompt_text = load_extraction_prompt()
+
     # Nudge model to stay on one line (reduces quote/newline glitches)
     prompt = (
-        f"{PROMPT_PREFIX}\n\n"
+        f"{prompt_text}\n\n"
         "Return compact JSON on a single line if possible.\n\n"
         "=== HTML START ===\n" + html_text + "\n=== HTML END ===\n"
     )
@@ -510,6 +566,18 @@ def extract_one_focus_html(domain_dir: Path, focus_html_path: Path, source_url: 
             "jobs": raw.get("jobs", []),
             "warning": f"normalize_error: {e}"
         }
+
+    # URL normalization post-processing
+    domain_name = str(domain_dir.name)
+    for job in cleaned.get("jobs", []):
+        if job.get("job_url"):
+            original = job["job_url"]
+            normalized = normalize_job_url(original, source_url, domain_name)
+            job["job_url"] = normalized
+
+            # Insert with warning per user preference
+            if not normalized or not normalized.startswith('http'):
+                _log(f"⚠️  WARNING: Incomplete URL will be inserted: {original} -> {normalized}")
 
     out_json.write_text(json.dumps(cleaned, ensure_ascii=False, indent=2), encoding="utf-8")
     _log(f"wrote: {out_json.name}")

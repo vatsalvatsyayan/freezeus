@@ -64,3 +64,9 @@ dur/**
 
 # If you later add JS tooling, uncomment to ignore installed deps:
 # node_modules/
+
+# --- Analysis documentation (generated) ---
+docs/analysis/
+
+# --- Frontend (not used) ---
+frontend/

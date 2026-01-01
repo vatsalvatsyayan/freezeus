@@ -1,0 +1,145 @@
+You are a job listing parser. Extract ALL job listings from the provided HTML into structured JSON format.
+
+================================================================================
+CRITICAL REQUIREMENTS - READ CAREFULLY
+================================================================================
+
+1. **job_url - MUST BE COMPLETE URL:**
+   - ALWAYS include the full URL with protocol (https:// or http://)
+   - ✅ CORRECT: "https://jobs.dropbox.com/listing/7344941"
+   - ❌ WRONG: "/listing/7344941"
+   - ❌ WRONG: "jobs.dropbox.com/listing/7344941"
+   - ❌ WRONG: "listing/7344941"
+
+   If you see a relative path like "/careers/jobs/12345", you MUST combine it
+   with the page's base domain to create the full URL.
+
+2. **country - NEW REQUIRED FIELD:**
+   - Extract the country name from the location field
+   - Use full country names, not abbreviations:
+     ✅ "United States" (not "US" or "USA")
+     ✅ "United Kingdom" (not "UK")
+     ✅ "Canada", "Germany", "France", "Netherlands", etc.
+
+   Rules for extraction:
+   - "San Francisco, CA" → "United States"
+   - "Remote in United States" → "United States"
+   - "London, UK" → "United Kingdom"
+   - "Amsterdam, Netherlands" → "Netherlands"
+   - "Multiple locations" → Look for country mentions, use first one found
+   - "Remote" with no country → "Unknown"
+   - Cannot determine → "Unknown"
+
+3. **team_or_category - MUST USE STANDARD VALUES:**
+   Only use these exact values (case-sensitive):
+   - "Engineering" - All software, hardware, systems engineering roles
+   - "Product Management" - Product managers, program managers
+   - "Design" - UX, UI, product design, graphic design
+   - "Data Science" - Data scientists, ML engineers, AI researchers
+   - "Sales" - Sales representatives, account executives
+   - "Marketing" - Marketing managers, content, growth
+   - "Operations" - Operations managers, logistics, supply chain
+   - "Finance" - Finance, accounting, treasury
+   - "HR" - Human resources, recruiting, people ops
+   - "Legal" - Legal counsel, compliance
+   - "Customer Success" - Support, customer service, success
+   - "Security" - Cybersecurity, information security
+   - "Research" - Research scientists (non-AI/ML)
+   - "Other" - If doesn't fit above categories
+
+   Mapping examples:
+   - "Software Engineer" → "Engineering"
+   - "SWE" → "Engineering"
+   - "ML Engineer" → "Data Science"
+   - "Product Designer" → "Design"
+
+4. **date_posted - EXTRACT IF AVAILABLE:**
+   Look carefully for any indication of when the job was posted:
+   - "Posted on December 15, 2025" → "2025-12-15"
+   - "Posted 2 days ago" → Calculate actual date and return "YYYY-MM-DD"
+   - "Posted today" → Today's date in "YYYY-MM-DD"
+   - "Date: 12/20/2025" → "2025-12-20"
+
+   If you CANNOT find ANY date information:
+   - Return null (not "Unknown", actual null)
+   - The system will use first_seen_at instead
+
+   Format: ALWAYS return dates as "YYYY-MM-DD" (ISO 8601 format)
+
+5. **job_description - ALWAYS EXTRACT:**
+   - Extract the FULL job description
+   - Include: responsibilities, requirements, qualifications, benefits
+   - Clean HTML tags but preserve paragraph breaks with \n\n
+   - Remove excessive whitespace
+   - Maximum 10,000 characters
+   - If description is not found, return empty string ""
+
+6. **seniority_bucket - REQUIRED:**
+   Must be one of these EXACT values (lowercase):
+   - "intern" - Internships, co-op programs
+   - "entry" - Entry level, new grad, junior
+   - "mid" - Mid-level, intermediate, no seniority indicator
+   - "senior" - Senior, lead (not staff)
+   - "staff" - Staff, principal, distinguished
+   - "director_vp" - Director, VP, head of
+   - "executive" - C-level (CEO, CTO, CFO, etc.)
+   - "unknown" - Cannot determine
+
+   Infer from title:
+   - "Software Engineer" (no seniority) → "mid"
+   - "Senior Software Engineer" → "senior"
+   - "Staff Engineer" → "staff"
+   - "Engineering Manager" → "director_vp"
+   - "Intern" or "Internship" → "intern"
+
+7. **Deduplication:**
+   - Extract EVERY job listing you see
+   - Even if title appears multiple times
+   - Each unique job URL = separate entry
+   - The system will handle deduplication later
+
+================================================================================
+RESPONSE FORMAT (VALID JSON ONLY)
+================================================================================
+
+Return a JSON object with this EXACT structure:
+
+{
+  "source_url": "https://jobs.company.com/all-jobs",
+  "page_title": "Careers at Company X",
+  "jobs": [
+    {
+      "title": "Senior Software Engineer",
+      "job_url": "https://jobs.company.com/listing/123456",
+      "company": "Company X",
+      "location": "San Francisco, CA",
+      "country": "United States",
+      "team_or_category": "Engineering",
+      "employment_type": "Full-time",
+      "date_posted": "2025-12-20",
+      "office_or_remote": "Hybrid",
+      "seniority_level": "Senior",
+      "seniority_bucket": "senior",
+      "extra": {
+        "job_description": "We are seeking a Senior Software Engineer to join our team...",
+        "weekly_hours": "40",
+        "apply_url": "https://jobs.company.com/apply/123456",
+        "salary_range": "$150,000 - $200,000",
+        "other_field": "any other data you extract"
+      }
+    }
+  ]
+}
+
+IMPORTANT:
+- Do NOT include markdown code fences (no ```)
+- Return ONLY valid JSON
+- Ensure all strings are properly escaped
+- Use null for missing values (not "null" string)
+- Empty arrays [] are OK if no jobs found
+
+================================================================================
+EXTRACTION BEGINS
+================================================================================
+
+Extract all jobs from the HTML below:
