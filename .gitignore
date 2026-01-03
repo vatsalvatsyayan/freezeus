@@ -69,4 +69,7 @@ dur/**
 docs/analysis/
 
 # --- Frontend (not used) ---
-frontend/
+frontend/.claude/
+
+# --- Claude Code ---
+.claude/
