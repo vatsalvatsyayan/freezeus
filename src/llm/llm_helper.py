@@ -1,12 +1,19 @@
 # src/llm/llm_helper.py
-import os, json, re, time, math
+import os, json, re, time
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Tuple
 from dotenv import load_dotenv
-from urllib.parse import urljoin
+from urllib.parse import urljoin  # Still needed for other URL operations
+
+# Import utilities from refactored modules
+from src.utils.url_utils import normalize_job_url
+from src.core.logging import get_logger
 
 # Always load project .env locally (no system env requirement)
 load_dotenv(dotenv_path=Path("configs/.env"), override=True)
+
+# Initialize logger
+logger = get_logger(__name__)
 
 try:
     import google.generativeai as genai
@@ -56,46 +63,8 @@ def load_extraction_prompt() -> str:
             print(f"[LLM] Warning: Failed to load prompt file: {e}. Using default.")
     return PROMPT_PREFIX  # Fallback to hardcoded
 
-def normalize_job_url(job_url: str, source_url: Optional[str], source_domain: str) -> Optional[str]:
-    """
-    Ensure job_url is a complete absolute URL.
-
-    Args:
-        job_url: URL from LLM (might be relative)
-        source_url: The page URL we crawled (can be None)
-        source_domain: Domain from directory name
-
-    Returns:
-        Complete absolute URL with protocol, or None if job_url is empty
-    """
-    if not job_url:
-        return None
-
-    job_url = job_url.strip()
-
-    # Already complete?
-    if job_url.startswith(('http://', 'https://')):
-        return job_url
-
-    # Try source_url first
-    if source_url:
-        try:
-            return urljoin(source_url, job_url)
-        except Exception as e:
-            print(f"[LLM] URL join failed: {source_url} + {job_url}: {e}")
-
-    # Fallback to domain
-    if source_domain:
-        if not source_domain.startswith(('http://', 'https://')):
-            source_domain = f"https://{source_domain}"
-        try:
-            return urljoin(source_domain, job_url)
-        except Exception as e:
-            print(f"[LLM] URL construct failed from domain: {e}")
-
-    # Cannot normalize
-    print(f"[LLM] Cannot normalize URL: '{job_url}' (no source)")
-    return job_url
+# NOTE: normalize_job_url is now imported from src.utils.url_utils
+# The function has been moved to a shared utility module
 
 # ---------------- Prompt ----------------
 PROMPT_PREFIX = """You are an expert at parsing career and job listing websites.
