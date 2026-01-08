@@ -25,6 +25,7 @@ htmlcov/
 .ipynb_checkpoints/
 *.log
 *.tmp
+logs/
 
 # --- Playwright (reports, traces, screenshots, videos) ---
 playwright/.cache/
