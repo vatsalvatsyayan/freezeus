@@ -8,5 +8,12 @@ This module contains shared utilities used across all components:
 """
 
 from src.core.logging import get_logger, setup_logging
+from src.core.config import get_config, validate_config, Config
 
-__all__ = ["get_logger", "setup_logging"]
+__all__ = [
+    "get_logger",
+    "setup_logging",
+    "get_config",
+    "validate_config",
+    "Config",
+]
