@@ -5,7 +5,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
+from pydantic import ValidationError
 from src.core.logging import get_logger
+from src.db.models import JobPosting, JobRecord, PageData
 
 # Load the same configs/.env as the rest of your project
 load_dotenv(dotenv_path=Path("configs/.env"), override=True)
@@ -61,7 +63,7 @@ def is_supabase_enabled() -> bool:
 
 def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
     """
-    Push all jobs from one LLM-cleaned page into Supabase.
+    Push all jobs from one LLM-cleaned page into Supabase with Pydantic validation.
 
     cleaned_page looks like:
       {
@@ -71,33 +73,54 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
       }
 
     - Uses job_url as unique key (on_conflict).
-    - If job_url is missing, that job is skipped.
+    - Validates jobs using Pydantic models before insertion.
+    - If job_url is missing or validation fails, that job is skipped.
     - Tracks first_seen_at (only for new jobs) and last_seen_at (updated on every crawl).
     - Extracts data from JSONB fields (raw_extra, raw_job) to main columns.
+
+    Args:
+        cleaned_page: Page data with jobs list
+        domain: Source domain name
+
+    Returns:
+        None
     """
     client = _init_client()
     if client is None:
         return
 
-    source_url = cleaned_page.get("source_url") or ""
-    page_title = cleaned_page.get("page_title") or ""
-    jobs = cleaned_page.get("jobs") or []
+    # Validate page data structure
+    try:
+        page_data = PageData(**cleaned_page)
+    except ValidationError as e:
+        logger.error(f"Page data validation failed for {domain}: {e}")
+        return
+
+    source_url = page_data.source_url
+    page_title = page_data.page_title
+    jobs = page_data.jobs
 
     rows: List[Dict[str, Any]] = []
     current_time = datetime.now(timezone.utc).isoformat()
     skipped = 0
+    validation_errors = 0
 
-    for j in jobs:
-        if not isinstance(j, dict):
-            continue
-
-        job_url = j.get("job_url")
-
-        # Skip only if completely missing (per user preference: insert with warning)
-        if not job_url:
-            logger.warning(f"Skipping job without URL: {j.get('title', 'Unknown')}")
+    for idx, job_dict in enumerate(jobs):
+        if not isinstance(job_dict, dict):
+            logger.debug(f"Skipping non-dict job at index {idx}")
             skipped += 1
             continue
+
+        # Validate job using Pydantic model
+        try:
+            job = JobPosting(**job_dict)
+        except ValidationError as e:
+            logger.warning(f"Job validation failed for {job_dict.get('title', 'Unknown')}: {e}")
+            validation_errors += 1
+            skipped += 1
+            continue
+
+        job_url = job.job_url
 
         # Warn about incomplete URLs but still insert them
         if not job_url.startswith('http'):
@@ -120,44 +143,18 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
             logger.error(f"Error checking existing job: {e}")
             is_new = False  # Safer: don't set first_seen_at if check fails
 
-        # Extract from JSONB
-        raw_extra = j.get("extra") or {}
+        # Use JobRecord to construct validated database row
+        job_record = JobRecord.from_job_posting(
+            job=job,
+            domain=domain,
+            source_url=source_url,
+            page_title=page_title,
+            first_seen_at=None,  # Will be set below based on is_new
+            last_seen_at=current_time,
+        )
 
-        row: Dict[str, Any] = {
-            "job_url": job_url,
-            "title": j.get("title"),
-            "company": j.get("company") or None,
-            "location": j.get("location"),
-
-            # NEW: Country field
-            "country": j.get("country") or "Unknown",
-
-            "team_or_category": j.get("team_or_category"),
-            "employment_type": j.get("employment_type"),
-            "office_or_remote": j.get("office_or_remote"),
-            "seniority_level": j.get("seniority_level"),
-            "seniority_bucket": j.get("seniority_bucket") or "unknown",
-
-            # Date tracking
-            "date_posted_raw": j.get("date_posted"),
-            "last_seen_at": current_time,
-
-            # Extract from JSONB
-            "job_description": raw_extra.get("job_description") or j.get("job_description"),
-            "weekly_hours": raw_extra.get("weekly_hours"),
-            "apply_url": raw_extra.get("apply_url"),
-            "job_id": raw_extra.get("job_id"),
-            "role_number": raw_extra.get("role_number"),
-
-            # Source tracking
-            "source_domain": domain,
-            "source_page_url": source_url,
-            "source_page_title": page_title,
-
-            # Raw storage
-            "raw_extra": raw_extra,
-            "raw_job": j,
-        }
+        # Convert to dict for database insertion
+        row = job_record.model_dump(exclude_none=False)
 
         # Set first_seen_at: new jobs get current time, existing jobs preserve original
         if is_new:
@@ -169,15 +166,27 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
         rows.append(row)
 
     if not rows:
-        if skipped > 0:
-            logger.warning(f"{domain}: skipped all {skipped} jobs (no valid URLs) for page '{page_title}'")
+        if validation_errors > 0:
+            logger.warning(
+                f"{domain}: skipped all {skipped} jobs "
+                f"({validation_errors} validation errors) for page '{page_title}'"
+            )
+        elif skipped > 0:
+            logger.warning(f"{domain}: skipped all {skipped} jobs (no valid data) for page '{page_title}'")
         else:
             logger.info(f"{domain}: no rows to upsert for page '{page_title}' ({source_url})")
         return
 
     try:
         # on_conflict=job_url → de-duplicate by job URL
-        logger.info(f"{domain}: upserting {len(rows)} jobs into '{JOBS_TABLE}' (skipped {skipped})")
+        log_msg = f"{domain}: upserting {len(rows)} jobs into '{JOBS_TABLE}'"
+        if skipped > 0:
+            log_msg += f" (skipped {skipped}"
+            if validation_errors > 0:
+                log_msg += f", {validation_errors} validation errors"
+            log_msg += ")"
+        logger.info(log_msg)
+
         client.table(JOBS_TABLE).upsert(rows, on_conflict="job_url").execute()
         logger.info(f"Successfully upserted {len(rows)} jobs from {domain}")
     except Exception as e:
