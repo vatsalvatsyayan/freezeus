@@ -1,12 +1,12 @@
 """
 Unit tests for URL normalization functionality.
 
-Tests the normalize_job_url function from src.llm.llm_helper
+Tests the normalize_job_url function from src.utils.url_utils
 to ensure relative URLs are properly converted to absolute URLs.
 """
 
 import pytest
-from src.llm.llm_helper import normalize_job_url
+from src.utils.url_utils import normalize_job_url
 
 
 class TestURLNormalization:
