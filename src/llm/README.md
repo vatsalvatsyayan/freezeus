@@ -6,39 +6,77 @@ This module handles job extraction from HTML using Google Gemini LLM.
 
 ```
 src/llm/
-├── __init__.py           # Module exports
+├── __init__.py           # Module exports with lazy loading
 ├── README.md             # This file
-├── parsers.py            # JSON parsing and data cleaning
+├── parsers.py            # JSON parsing and data normalization
 ├── prompt_loader.py      # Prompt management
-├── client.py             # Gemini API client
-└── extractor.py          # Main extraction orchestration
+├── client.py             # Gemini API client with retry logic
+├── extractor.py          # Main extraction orchestration
+└── llm_helper.py         # Legacy compatibility wrapper (deprecated)
 ```
 
 ## Components
 
 ### parsers.py
-Handles JSON parsing with robust error recovery:
-- `parse_json_robust()` - Parse JSON with fallback strategies
-- `sanitize_json_text()` - Clean malformed JSON text
-- `normalize_and_dedupe()` - Deduplicate and normalize job data
-- Helper functions for data cleaning
+Handles JSON parsing with robust error recovery and data normalization:
+- `parse_json_robust()` - Multi-strategy JSON parser (strict → sanitize → json5 → brace-slice)
+- `sanitize_json_text()` - Clean malformed JSON (code fences, smart quotes, trailing commas)
+- `normalize_and_dedupe()` - Deduplicate jobs by URL/requisition_id/title+location
+- `normalize_seniority_fields()` - Map seniority variations to canonical buckets
+- Helper functions: `_strip_ws()`, `_richness_score()`, `_canon_loc()`, `_sig()`, `_omit_empty()`
+
+**Key Features:**
+- No external dependencies (except optional json5)
+- Handles common LLM output issues (code fences, smart quotes, control chars)
+- Intelligent deduplication keeps richer job version
+- 34 unit tests with 100% coverage
 
 ### prompt_loader.py
 Manages extraction prompts:
-- `load_extraction_prompt()` - Load from file with fallback
-- `get_default_prompt()` - Default prompt template
+- `load_extraction_prompt()` - Load from configs/llm_extraction_prompt.txt with fallback
+- `get_default_prompt()` - Get default prompt template
+- `DEFAULT_PROMPT` - Full extraction prompt with seniority inference rules
+
+**Key Features:**
+- Configurable prompt from file
+- Graceful fallback to hardcoded default
+- Detailed seniority bucket instructions for LLM
 
 ### client.py
-Gemini API client:
-- `get_gemini_client()` - Initialize Gemini client
-- `call_gemini()` - Make API calls with retry logic
-- Configuration from environment
+Gemini API client with retry logic:
+- `get_gemini_client()` - Initialize and configure Gemini client
+- `call_gemini_with_retries()` - API call with exponential backoff
+- `call_gemini()` - Simplified API call wrapper
+- Configuration from environment variables
+
+**Key Features:**
+- Exponential backoff retry (configurable via LLM_MAX_RETRIES, LLM_RETRY_BASE_SLEEP)
+- Structured logging of API calls and errors
+- Temperature and response format configuration
+- Environment-based model selection
 
 ### extractor.py
-Main extraction logic:
-- `extract_jobs_from_html()` - Extract jobs from single HTML file
-- `extract_all_focus_htmls()` - Batch process multiple HTML files
-- Orchestrates prompt, LLM, parsing, and database
+Main extraction orchestration:
+- `extract_jobs_from_html()` - Extract jobs from HTML text via LLM
+- `extract_one_focus_html()` - Process single HTML file (read → extract → normalize → write → DB)
+- `extract_all_focus_htmls()` - Batch process directory of HTML files
+- `_fix_json_via_model()` - Second-chance JSON repair via LLM
+
+**Key Features:**
+- Complete extraction pipeline: HTML → LLM → JSON → Normalize → Dedupe → Write → Supabase
+- URL normalization and validation
+- HTML truncation for large pages
+- JSON repair fallback
+- Optional Supabase database integration
+- Comprehensive error handling (never raises, always writes output)
+
+### llm_helper.py (DEPRECATED)
+Legacy compatibility wrapper that re-exports all functions from the new modules.
+Maintained for backwards compatibility only. New code should import directly from:
+- `src.llm.parsers`
+- `src.llm.prompt_loader`
+- `src.llm.client`
+- `src.llm.extractor`
 
 ## Usage
 
