@@ -49,7 +49,7 @@ jobs:
           SUPABASE_ENABLED=1
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_JOBS_TABLE=jobs_raw
+          SUPABASE_JOBS_TABLE=jobs
 
           # === Crawler Configuration ===
           MAX_RETRIES=3
@@ -60,6 +60,10 @@ jobs:
           # === Logging Configuration ===
           LOG_LEVEL=INFO
           LOG_DIR=logs
+
+          # === Error Logging Configuration ===
+          ERROR_LOG_TABLE=error_logs
+          ERROR_LOG_FALLBACK_DIR=logs/errors
           EOF
 
       - name: Show configs/.env (redacted)
