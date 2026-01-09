@@ -49,6 +49,10 @@ from src.crawler.file_manager import (
 # === LLM helpers (batch will run AFTER crawl if --with-llm is passed) ===
 from src.llm.llm_helper import extract_all_focus_htmls
 
+# === Error logging ===
+from src.core.error_logger import get_error_logger
+from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
+
 BASE_OUT = Path("out")
 BASE_OUT.mkdir(exist_ok=True, parents=True)
 
@@ -354,6 +358,20 @@ async def crawl(urls: List[str], headed: bool,
                         except Exception as e:
                             print(f"[error] seed failed for {url}: {e}")
                             traceback.print_exc()
+                            # Log crawl seed failure
+                            get_error_logger().log_exception(
+                                e,
+                                component=ErrorComponent.CRAWLER,
+                                stage=ErrorStage.NAVIGATE_SEED,
+                                domain=domain,
+                                url=url,
+                                severity=ErrorSeverity.ERROR,
+                                metadata={
+                                    "jobs_max": jobs_max,
+                                    "time_budget": time_budget,
+                                    "pages_max": pages_max,
+                                }
+                            )
                             # move to next URL in this domain
                             continue
 
@@ -363,6 +381,19 @@ async def crawl(urls: List[str], headed: bool,
             except Exception as e:
                 print(f"[domain error] aborting domain {domain} due to exception: {e}")
                 traceback.print_exc()
+                # Log domain-level failure
+                get_error_logger().log_exception(
+                    e,
+                    component=ErrorComponent.CRAWLER,
+                    stage="crawl_domain",
+                    domain=domain,
+                    url=durls[0] if durls else "",
+                    severity=ErrorSeverity.CRITICAL,
+                    metadata={
+                        "seeds_count": len(durls),
+                        "seeds": durls[:3],  # Log first 3 URLs
+                    }
+                )
                 # do NOT add to processed_domains if everything blew up before any seed
                 # (we only appended inside the with-block)
                 continue

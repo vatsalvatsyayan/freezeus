@@ -9,7 +9,9 @@ import re
 from typing import List, Tuple, Dict, Any
 from playwright.async_api import Page
 
-from src.crawler.url_utils import sha1, canon_url
+from src.crawler.url_utils import sha1, canon_url, domain_of
+from src.core.error_logger import get_error_logger
+from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
 
 
 # Regex to detect job-related keywords
@@ -392,5 +394,21 @@ async def wait_for_jobs_or_timeout(
     ]
     if await _has_any(page, nav_selectors):
         return True
+
+    # No jobs detected after all strategies - log warning
+    get_error_logger().log_error(
+        component=ErrorComponent.CRAWLER,
+        stage=ErrorStage.WAIT_FOR_JOBS,
+        error_type=ErrorType.TIMEOUT,
+        domain=domain_of(seed_url),
+        url=page.url,
+        severity=ErrorSeverity.WARNING,
+        message=f"No job listings detected after {max_wait_ms}ms wait",
+        metadata={
+            "seed_url": seed_url,
+            "max_wait_ms": max_wait_ms,
+            "page_title": await page.title() if page else "unknown",
+        }
+    )
 
     return False

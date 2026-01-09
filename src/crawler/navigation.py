@@ -11,6 +11,9 @@ from typing import Tuple, List, Dict, Any
 from playwright.async_api import Page
 
 from src.crawler.reducers import REDUCE_FOCUS_JS, REDUCE_LITE_JS
+from src.crawler.url_utils import domain_of
+from src.core.error_logger import get_error_logger
+from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
 
 
 async def snapshot_current(page: Page) -> Tuple[str, str, str, List[Any], Dict[str, Any]]:
@@ -48,15 +51,37 @@ async def snapshot_current(page: Page) -> Tuple[str, str, str, List[Any], Dict[s
         red_focus = result.get("reduced_html", "")
         signals = result.get("kept_signals", [])
         meta = result.get("meta", {})
-    except Exception:
+    except Exception as e:
         red_focus = ""
         signals = []
         meta = {}
+        # Log reduction failure (warning level - not critical)
+        get_error_logger().log_exception(
+            e,
+            component=ErrorComponent.CRAWLER,
+            stage=ErrorStage.REDUCE_HTML,
+            domain=domain_of(page.url),
+            url=page.url,
+            severity=ErrorSeverity.WARNING,
+            error_type=ErrorType.BROWSER_ERROR,
+            metadata={"reduction_type": "focus"}
+        )
 
     try:
         red_lite = await page.evaluate(REDUCE_LITE_JS)
-    except Exception:
+    except Exception as e:
         red_lite = ""
+        # Log lite reduction failure
+        get_error_logger().log_exception(
+            e,
+            component=ErrorComponent.CRAWLER,
+            stage=ErrorStage.REDUCE_HTML,
+            domain=domain_of(page.url),
+            url=page.url,
+            severity=ErrorSeverity.WARNING,
+            error_type=ErrorType.BROWSER_ERROR,
+            metadata={"reduction_type": "lite"}
+        )
 
     # Add metadata
     meta["title"] = await page.title()
@@ -95,6 +120,20 @@ async def navigate_seed(page: Page, url: str) -> Tuple[str, str, str, List[Any],
         except Exception as e:
             if attempt == max_retries - 1:
                 print(f"[nav error] Failed to load {url} after {max_retries} attempts: {e}")
+                # Log navigation failure
+                get_error_logger().log_exception(
+                    e,
+                    component=ErrorComponent.CRAWLER,
+                    stage=ErrorStage.NAVIGATE_SEED,
+                    domain=domain_of(url),
+                    url=url,
+                    severity=ErrorSeverity.ERROR,
+                    metadata={
+                        "max_retries": max_retries,
+                        "nav_timeout_ms": nav_timeout_ms,
+                        "attempt": attempt + 1,
+                    }
+                )
                 return "", "", "", [], {"error": str(e), "url": url}
             await page.wait_for_timeout(random.randint(2000, 4000))
 

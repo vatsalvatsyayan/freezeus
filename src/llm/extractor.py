@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from src.core.logging import get_logger
+from src.core.error_logger import get_error_logger
+from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
 from src.utils.url_utils import normalize_job_url
 from src.llm.parsers import parse_json_robust, normalize_and_dedupe
 from src.llm.prompt_loader import load_extraction_prompt
@@ -101,7 +103,8 @@ def extract_jobs_from_html(
     html_text: str,
     source_url: str = "",
     page_title: str = "",
-    model_name: str = None
+    model_name: str = None,
+    domain: str = "unknown"
 ) -> Dict[str, Any]:
     """
     Extract jobs from HTML text using LLM.
@@ -111,6 +114,7 @@ def extract_jobs_from_html(
         source_url: Source page URL
         page_title: Page title
         model_name: Optional Gemini model name
+        domain: Domain name for error logging
 
     Returns:
         Dict with source_url, page_title, jobs list
@@ -154,12 +158,26 @@ def extract_jobs_from_html(
         # Parse JSON
         try:
             data = parse_json_robust(text)
-        except Exception:
+        except Exception as e:
             _log("Primary JSON parse failed, attempting fixer")
             fixed = _fix_json_via_model(model_name, text)
             if fixed is None:
                 # Last resort
                 _log("JSON fixer failed, returning empty result with error")
+                get_error_logger().log_exception(
+                    e,
+                    component=ErrorComponent.LLM,
+                    stage=ErrorStage.PARSE_JSON,
+                    domain=domain,
+                    url=source_url or "",
+                    severity=ErrorSeverity.ERROR,
+                    error_type=ErrorType.JSON_ERROR,
+                    metadata={
+                        "page_title": page_title,
+                        "response_preview": text[:500] if text else "",
+                        "response_length": len(text) if text else 0,
+                    }
+                )
                 return {
                     "source_url": source_url or "",
                     "page_title": page_title or "",
@@ -233,7 +251,8 @@ def extract_one_focus_html(
 
     # Extract jobs
     _log("Extracting jobs via Gemini API")
-    raw = extract_jobs_from_html(html_text, source_url or "", page_title or "")
+    domain_name = str(domain_dir.name)
+    raw = extract_jobs_from_html(html_text, source_url or "", page_title or "", domain=domain_name)
 
     # Normalize and deduplicate
     _log("Normalizing and deduplicating jobs")
@@ -253,7 +272,6 @@ def extract_one_focus_html(
         }
 
     # URL normalization post-processing
-    domain_name = str(domain_dir.name)
     for job in cleaned.get("jobs", []):
         if job.get("job_url"):
             original = job["job_url"]
@@ -281,6 +299,19 @@ def extract_one_focus_html(
                 _log("Supabase disabled or client init failed")
         except Exception as e:
             logger.error(f"Supabase upsert error for {domain_name}: {e}")
+            get_error_logger().log_exception(
+                e,
+                component=ErrorComponent.LLM,
+                stage=ErrorStage.UPSERT_FROM_EXTRACTOR,
+                domain=domain_name,
+                url=source_url,
+                severity=ErrorSeverity.WARNING,
+                metadata={
+                    "page_title": page_title,
+                    "jobs_count": len(cleaned.get('jobs', [])),
+                    "file": str(focus_html_path),
+                }
+            )
     else:
         _log(f"Supabase not available: {_SUPABASE_IMPORT_ERR}")
 

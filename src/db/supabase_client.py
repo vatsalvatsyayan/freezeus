@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from dotenv import load_dotenv
 from pydantic import ValidationError
 from src.core.logging import get_logger
+from src.core.error_logger import get_error_logger
+from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
 from src.db.models import JobPosting, JobRecord, PageData
 
 # Load the same configs/.env as the rest of your project
@@ -94,6 +96,19 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
         page_data = PageData(**cleaned_page)
     except ValidationError as e:
         logger.error(f"Page data validation failed for {domain}: {e}")
+        get_error_logger().log_exception(
+            e,
+            component=ErrorComponent.DATABASE,
+            stage=ErrorStage.VALIDATE_PAGE,
+            domain=domain,
+            url=cleaned_page.get("source_url", ""),
+            severity=ErrorSeverity.ERROR,
+            error_type=ErrorType.VALIDATION_ERROR,
+            metadata={
+                "page_title": cleaned_page.get("page_title"),
+                "jobs_count": len(cleaned_page.get("jobs", [])),
+            }
+        )
         return
 
     source_url = page_data.source_url
@@ -116,6 +131,21 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
             job = JobPosting(**job_dict)
         except ValidationError as e:
             logger.warning(f"Job validation failed for {job_dict.get('title', 'Unknown')}: {e}")
+            get_error_logger().log_exception(
+                e,
+                component=ErrorComponent.DATABASE,
+                stage=ErrorStage.VALIDATE_JOB,
+                domain=domain,
+                url=source_url,
+                severity=ErrorSeverity.WARNING,
+                error_type=ErrorType.VALIDATION_ERROR,
+                include_stack_trace=False,  # Expected error, no stack needed
+                metadata={
+                    "job_title": job_dict.get("title"),
+                    "job_url": job_dict.get("job_url"),
+                    "page_title": page_title,
+                }
+            )
             validation_errors += 1
             skipped += 1
             continue
@@ -141,6 +171,16 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
                 existing_first_seen = existing.data[0]['first_seen_at']
         except Exception as e:
             logger.error(f"Error checking existing job: {e}")
+            get_error_logger().log_exception(
+                e,
+                component=ErrorComponent.DATABASE,
+                stage=ErrorStage.CHECK_EXISTING,
+                domain=domain,
+                url=source_url,
+                severity=ErrorSeverity.WARNING,
+                error_type=ErrorType.DB_QUERY_ERROR,
+                metadata={"job_url": job_url, "page_title": page_title}
+            )
             is_new = False  # Safer: don't set first_seen_at if check fails
 
         # Use JobRecord to construct validated database row
@@ -154,7 +194,7 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
         )
 
         # Convert to dict for database insertion
-        row = job_record.model_dump(exclude_none=False)
+        row = job_record.model_dump(exclude_none=True)
 
         # Set first_seen_at: new jobs get current time, existing jobs preserve original
         if is_new:
@@ -192,3 +232,19 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
     except Exception as e:
         # Fail *softly*: we don't want to kill the whole crawl
         logger.error(f"Upsert error ({domain}): {e}")
+        get_error_logger().log_exception(
+            e,
+            component=ErrorComponent.DATABASE,
+            stage=ErrorStage.UPSERT_JOBS,
+            domain=domain,
+            url=source_url,
+            severity=ErrorSeverity.ERROR,
+            error_type=ErrorType.DB_UPSERT_ERROR,
+            metadata={
+                "page_title": page_title,
+                "jobs_count": len(rows),
+                "skipped": skipped,
+                "validation_errors": validation_errors,
+                "table": JOBS_TABLE,
+            }
+        )
