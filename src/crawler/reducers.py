@@ -51,7 +51,16 @@ REDUCE_FOCUS_JS = r"""
       const hidden = cs.display === 'none' || cs.visibility === 'hidden' || +cs.opacity === 0;
       const idcl = (el.id + " " + (el.className || "")).toLowerCase();
       const bannerish = /cookie|consent|newsletter|subscribe|sign-?up|login|advert|promo|overlay|modal|toast|social|gdpr/.test(idcl);
-      if (hidden || (fixed && bannerish)) toMark.push(el);
+
+      // Check if element or descendants contain job links (even if hidden)
+      const hasJobLinks = el.querySelectorAll && Array.from(el.querySelectorAll('a[href]')).some(a => {
+        const href = a.getAttribute('href') || '';
+        return looksLikeJobHref(href);
+      });
+
+      // Only mark for removal if: hidden AND (fixed banner OR no job links)
+      if (hidden && !hasJobLinks) toMark.push(el);
+      else if (fixed && bannerish) toMark.push(el);
     }
     toMark.forEach(el => IGNORE.add(el));
   }
