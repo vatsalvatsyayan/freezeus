@@ -80,6 +80,8 @@ jobs:
           echo "Found $(wc -l < configs/urls.txt) URLs to crawl"
 
       - name: Run crawler (headless)
+        env:
+          LLM_MAX_HTML_CHARS: 500000
         run: |
           python -m src.crawler.multi_capture \
             --urls configs/urls.txt \
