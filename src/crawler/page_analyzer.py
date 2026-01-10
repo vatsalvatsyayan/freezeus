@@ -21,7 +21,7 @@ KEYWORD_RE = re.compile(
 )
 
 
-async def ordered_job_hrefs(page: Page, seed_url: str, cap: int = 60) -> List[str]:
+async def ordered_job_hrefs(page: Page, seed_url: str, cap: int = 200) -> List[str]:
     """
     Extract job-related links from the page in document order.
 
@@ -30,7 +30,7 @@ async def ordered_job_hrefs(page: Page, seed_url: str, cap: int = 60) -> List[st
     Args:
         page: Playwright page instance
         seed_url: Base URL for resolving relative links
-        cap: Maximum number of links to return
+        cap: Maximum number of links to return (default: 200)
 
     Returns:
         List of canonical job URLs

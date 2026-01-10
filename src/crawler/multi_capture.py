@@ -158,7 +158,7 @@ def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] =
 # Seed crawl
 # -------------------
 async def crawl_seed(page: Page, seed_url: str,
-                     jobs_max=100, time_budget=75, pages_max=3,
+                     jobs_max=200, time_budget=75, pages_max=3,
                      loadmore_max=5, scroll_max=20, no_change_cap=2):
     """
     Crawl a single seed URL with pagination/infinite scroll support.
