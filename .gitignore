@@ -68,6 +68,9 @@ dur/**
 
 # --- Analysis documentation (generated) ---
 docs/analysis/
+monitoring/*_analysis*.json
+monitoring/*_analysis*.md
+monitoring/ANALYSIS_SUMMARY.md
 
 # --- Frontend (not used) ---
 frontend/
