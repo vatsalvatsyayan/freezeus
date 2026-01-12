@@ -2,8 +2,9 @@ name: Run job crawler
 
 on:
   schedule:
-    # Every 6 hours: 00:00, 06:00, 12:00, 18:00 UTC
-    - cron: "0 */6 * * *"
+    # Three times daily: 08:00, 16:00, 00:00 UTC
+    # (Approximately 3am, 11am, 7pm EST / 12am, 8am, 4pm PST)
+    - cron: "0 8,16,0 * * *"
   # Allow manual runs from the Actions tab
   workflow_dispatch: {}
 
@@ -35,18 +36,34 @@ jobs:
         run: |
           mkdir -p configs
           cat <<EOF > configs/.env
-          # Gemini / LLM config
+          # === Gemini API Configuration ===
           GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL=${{ secrets.GEMINI_MODEL || 'models/gemini-1.5-pro-latest' }}
           LLM_MAX_HTML_CHARS=250000
-          LLM_RPM=20
-          LLM_TIMEOUT_S=60
+          LLM_MAX_RETRIES=2
+          LLM_RETRY_BASE_SLEEP=1.6
+          LLM_VERBOSE=1
+          LLM_OVERWRITE=0
 
-          # Supabase config
+          # === Supabase Database Configuration ===
+          SUPABASE_ENABLED=1
           SUPABASE_URL=${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_ENABLED=1
           SUPABASE_JOBS_TABLE=jobs
+
+          # === Crawler Configuration ===
+          MAX_RETRIES=3
+          NAV_TIMEOUT_MS=45000
+          PER_DOMAIN_DELAY_MIN=8
+          PER_DOMAIN_DELAY_MAX=15
+
+          # === Logging Configuration ===
+          LOG_LEVEL=INFO
+          LOG_DIR=logs
+
+          # === Error Logging Configuration ===
+          ERROR_LOG_TABLE=error_logs
+          ERROR_LOG_FALLBACK_DIR=logs/errors
           EOF
 
       - name: Show configs/.env (redacted)
@@ -63,11 +80,14 @@ jobs:
           echo "Found $(wc -l < configs/urls.txt) URLs to crawl"
 
       - name: Run crawler (headless)
+        env:
+          LLM_MAX_HTML_CHARS: 500000
         run: |
           python -m src.crawler.multi_capture \
             --urls configs/urls.txt \
             --headless \
-            --with-llm
+            --with-llm \
+            --loadmore-max 15
 
       - name: Upload crawl artifacts (optional)
         if: always()  # Upload even if crawler fails
