@@ -1,650 +1,363 @@
-# Freezeus - Job Aggregation Backend
+# Seal
 
-Production-grade job board crawler and extraction system that automatically scrapes career pages, extracts structured job data using LLM, and stores results in a database.
+Job aggregation backend that crawls company career pages, extracts structured job data using LLM, and stores results in PostgreSQL.
 
-## 🚀 What This System Does
+## What It Does
 
-1. **Crawls** company career pages using Playwright with anti-bot detection
-2. **Reduces** HTML intelligently to minimize LLM processing costs
-3. **Extracts** structured job data using Google Gemini 1.5 Pro
-4. **Validates** and normalizes job listings with Pydantic
-5. **Stores** data in Supabase (PostgreSQL) with automatic upsert logic
-6. **Runs** automatically every 6 hours via GitHub Actions
+1. **Crawls** career pages using Playwright (handles SPAs, pagination, infinite scroll)
+2. **Reduces** HTML to minimize LLM token costs (~80% reduction)
+3. **Extracts** job data using Google Gemini 1.5 Pro
+4. **Validates** with Pydantic and stores in Supabase
+5. **Runs** every 6 hours via GitHub Actions
 
-**Tech Stack**: Python 3.13 • Playwright • Google Gemini API • Supabase • Pydantic • Pytest
-
----
-
-## 📁 Project Structure
-
-```
-freezeus/
-├── src/                      # Source code
-│   ├── crawler/              # Web scraping with Playwright
-│   ├── llm/                  # LLM extraction with Gemini
-│   ├── db/                   # Database models and operations
-│   └── core/                 # Configuration and logging
-│
-├── tests/                    # Test suite (148 tests)
-│   ├── unit/                 # Unit tests
-│   └── integration/          # Integration tests
-│
-├── configs/                  # Configuration files
-│   ├── .env                  # Environment variables (not in git)
-│   ├── .env.example          # Template for environment variables
-│   ├── urls.txt              # List of URLs to crawl
-│   └── llm_extraction_prompt.txt  # Gemini extraction prompt
-│
-├── out/                      # Crawl output (gitignored)
-│   └── <domain>/             # Per-domain subdirectories
-│       ├── full/             # Complete HTML snapshots
-│       ├── reduced_focus/    # Job-focused HTML reduction
-│       ├── reduced_lite/     # Minimal HTML (scripts stripped)
-│       ├── meta/             # Page metadata (JSON)
-│       ├── signals/          # Reduction scoring signals
-│       └── llm/              # Extracted job data (JSON)
-│
-├── scripts/                  # Utility scripts
-│   └── crawl.sh              # Run crawler in headed mode
-│
-├── docs/                     # Additional documentation
-│   └── analysis/             # Architecture analysis
-│
-└── logs/                     # Application logs
-```
+**Stack:** Python 3.13 · Playwright · Gemini API · Supabase · Pydantic
 
 ---
 
-## 🏗️ System Architecture
-
-### High-Level Data Flow
+## Architecture
 
 ```
-URLs (configs/urls.txt)
-    ↓
-┌─────────────────────────────────────────────────────────┐
-│ 1. CRAWLER (src/crawler/)                               │
-│    • Playwright browser automation                      │
-│    • Multi-page capture (pagination + infinite scroll)  │
-│    • HTML reduction (3 versions saved)                  │
-└─────────────────────────────────────────────────────────┘
-    ↓ HTML files saved to out/<domain>/
-┌─────────────────────────────────────────────────────────┐
-│ 2. LLM EXTRACTION (src/llm/)                            │
-│    • Load reduced_focus HTML                            │
-│    • Send to Gemini 1.5 Pro                             │
-│    • Parse JSON response (multi-strategy)               │
-│    • Validate with Pydantic                             │
-└─────────────────────────────────────────────────────────┘
-    ↓ JSON jobs data
-┌─────────────────────────────────────────────────────────┐
-│ 3. DATABASE (src/db/)                                   │
-│    • Pydantic validation & normalization                │
-│    • Upsert to Supabase (preserve first_seen_at)        │
-│    • Track job lifecycle (first/last seen timestamps)   │
-└─────────────────────────────────────────────────────────┘
-    ↓
-📊 Supabase Database (jobs_raw table)
+configs/urls.txt (30+ company URLs)
+        │
+        ▼
+┌───────────────────────────────────────────────────┐
+│  CRAWLER (src/crawler/)                           │
+│  Playwright browser automation                    │
+│  • Navigate & render JavaScript                   │
+│  • Handle pagination + infinite scroll            │
+│  • Save 3 HTML versions (full, reduced, lite)     │
+└───────────────────────────────────────────────────┘
+        │
+        ▼  out/<domain>/reduced_focus/*.html
+┌───────────────────────────────────────────────────┐
+│  LLM EXTRACTOR (src/llm/)                         │
+│  Google Gemini 1.5 Pro                            │
+│  • Parse JSON robustly (4 fallback strategies)    │
+│  • Normalize & deduplicate jobs                   │
+│  • Validate with Pydantic                         │
+└───────────────────────────────────────────────────┘
+        │
+        ▼  Structured job data
+┌───────────────────────────────────────────────────┐
+│  DATABASE (src/db/)                               │
+│  Supabase (PostgreSQL)                            │
+│  • Upsert with conflict resolution                │
+│  • Preserve first_seen_at, update last_seen_at    │
+└───────────────────────────────────────────────────┘
 ```
 
 ### Module Dependencies
 
 ```
-src/core/  (Config + Logging)
-    ↓
-    ├─→ src/crawler/  (Web scraping)
-    ├─→ src/llm/      (LLM extraction)
-    └─→ src/db/       (Database operations)
-
-External Dependencies:
-    • playwright (browser automation)
-    • google-generativeai (Gemini API)
-    • supabase-py (database client)
-    • pydantic (data validation)
+src/core/           Config + logging (shared)
+    │
+    ├── src/crawler/    Web scraping with Playwright
+    ├── src/llm/        LLM extraction with Gemini
+    └── src/db/         Database operations
 ```
 
 ---
 
-## 📚 Module Documentation
+## Project Structure
 
-Each module has comprehensive documentation explaining its structure, purpose, and usage:
-
-- **[src/crawler/README.md](src/crawler/README.md)** - Multi-site web crawler with pagination and infinite scroll support
-- **[src/llm/README.md](src/llm/README.md)** - LLM job extraction using Google Gemini with robust parsing
-- **[src/db/README.md](src/db/README.md)** - Pydantic models and Supabase database operations
-- **[src/core/README.md](src/core/README.md)** - Configuration management and structured logging
+```
+seal/
+├── src/
+│   ├── crawler/          # Web scraping
+│   │   ├── multi_capture.py   # Main entry point
+│   │   ├── navigation.py      # Browser interactions
+│   │   ├── page_analyzer.py   # Progress detection
+│   │   ├── file_manager.py    # File I/O
+│   │   ├── url_utils.py       # URL parsing
+│   │   └── reducers.py        # HTML reduction JS
+│   │
+│   ├── llm/              # LLM extraction
+│   │   ├── extractor.py       # Orchestration
+│   │   ├── client.py          # Gemini API client
+│   │   ├── parsers.py         # JSON parsing
+│   │   └── prompt_loader.py   # Prompt management
+│   │
+│   ├── db/               # Database
+│   │   ├── supabase_client.py # DB operations
+│   │   └── models.py          # Pydantic models
+│   │
+│   └── core/             # Shared
+│       ├── config.py          # Environment vars
+│       └── logging.py         # Structured logging
+│
+├── configs/
+│   ├── .env                   # Secrets (gitignored)
+│   ├── .env.example           # Template
+│   ├── urls.txt               # URLs to crawl
+│   └── llm_extraction_prompt.txt
+│
+├── tests/
+│   ├── unit/                  # 148+ tests
+│   └── integration/
+│
+├── out/                  # Output (gitignored)
+│   └── <domain>/
+│       ├── full/              # Complete HTML
+│       ├── reduced_focus/     # For LLM (~100KB)
+│       ├── reduced_lite/      # Scripts stripped
+│       ├── meta/              # Metadata JSON
+│       ├── signals/           # Reduction scores
+│       └── llm/               # Extracted jobs
+│
+└── .github/workflows/
+    └── crawler.yml            # Scheduled automation
+```
 
 ---
 
-## ⚙️ Setup & Installation
+## Setup
 
-### Prerequisites
+### Requirements
 
 - Python 3.13+
 - Google Gemini API key
-- Supabase account (optional, for database storage)
+- Supabase account (optional)
 
-### Installation Steps
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/vatsalvatsyayan/freezeus.git
-   cd freezeus
-   ```
-
-2. **Create virtual environment**
-   ```bash
-   python3.13 -m venv .venv
-   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   pip install -r requirements-dev.txt  # For testing
-   ```
-
-4. **Install Playwright browsers**
-   ```bash
-   playwright install chromium
-   ```
-
-5. **Configure environment variables**
-   ```bash
-   cp configs/.env.example configs/.env
-   # Edit configs/.env with your API keys
-   ```
-
-6. **Configure URLs to crawl**
-   ```bash
-   # Edit configs/urls.txt - one URL per line
-   # Example:
-   # https://example.com/careers
-   # https://another.com/jobs
-   ```
-
-### Environment Configuration
-
-Edit `configs/.env` with your settings:
+### Installation
 
 ```bash
-# === Required ===
-GEMINI_API_KEY=your-api-key-here
+# Clone and enter directory
+git clone https://github.com/vatsalvatsyayan/seal.git
+cd seal
 
-# === Optional (Supabase) ===
+# Create virtual environment
+python3.13 -m venv .venv
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+pip install -r requirements-dev.txt  # For testing
+
+# Install Playwright browser
+playwright install chromium
+
+# Configure environment
+cp configs/.env.example configs/.env
+# Edit configs/.env with your API keys
+```
+
+### Configuration
+
+Edit `configs/.env`:
+
+```bash
+# Required
+GEMINI_API_KEY=your-api-key
+
+# Optional (Supabase)
 SUPABASE_ENABLED=1
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_SERVICE_ROLE_KEY=your-key
 
-# === Crawler Settings ===
-MAX_RETRIES=3
+# Crawler settings
 NAV_TIMEOUT_MS=45000
 PER_DOMAIN_DELAY_MIN=8
 PER_DOMAIN_DELAY_MAX=15
 
-# === LLM Settings ===
+# LLM settings
 LLM_MAX_HTML_CHARS=250000
 LLM_MAX_RETRIES=2
-LLM_VERBOSE=1
 ```
-
-See [configs/.env.example](configs/.env.example) for full documentation.
 
 ---
 
-## 🚀 Usage
+## Usage
 
-### Running the Crawler
+### Basic Crawl
 
-**Basic crawl** (saves HTML only):
 ```bash
+# Crawl and save HTML only
 python -m src.crawler.multi_capture --urls configs/urls.txt
-```
 
-**Crawl with LLM extraction**:
-```bash
+# Crawl + LLM extraction
 python -m src.crawler.multi_capture --urls configs/urls.txt --with-llm
-```
 
-**Headless mode** (for CI/automation):
-```bash
+# Headless mode (CI/automation)
 python -m src.crawler.multi_capture --urls configs/urls.txt --headless --with-llm
 ```
 
-**Custom parameters**:
+### Options
+
 ```bash
 python -m src.crawler.multi_capture \
   --urls configs/urls.txt \
   --with-llm \
-  --jobs-max 150 \
-  --pages-max 5 \
-  --time-budget 120
+  --headless \
+  --jobs-max 150 \      # Stop after N jobs per seed
+  --pages-max 5 \       # Max pagination pages
+  --time-budget 120     # Expansion phase timeout (seconds)
 ```
 
-### Running LLM Extraction Only
-
-If you already have crawled HTML and want to extract jobs:
+### Tests
 
 ```bash
-python -c "
-from pathlib import Path
-from src.llm.llm_helper import extract_all_focus_htmls
-
-# Extract from all reduced_focus HTMLs for a domain
-domain_dir = Path('out/example.com')
-json_paths = extract_all_focus_htmls(domain_dir)
-print(f'Extracted {len(json_paths)} job files')
-"
-```
-
-### Running Tests
-
-**All tests**:
-```bash
+# All tests
 pytest
-```
 
-**Specific module**:
-```bash
-pytest tests/unit/test_crawler_url_utils.py -v
-pytest tests/unit/test_llm_parsers.py -v
-pytest tests/unit/test_db_models.py -v
-```
+# Unit tests only (fast, no external deps)
+pytest tests/unit/ -v
 
-**With coverage**:
-```bash
+# With coverage
 pytest --cov=src --cov-report=html
-open htmlcov/index.html
 ```
 
 ---
 
-## 📊 Output Structure
+## How It Works
 
-After running the crawler, you'll find organized output in `out/<domain>/`:
+### 1. Crawling
+
+The crawler handles three pagination patterns:
+
+- **Numbered pagination** - Clicks "Next" buttons, saves p001, p002, p003...
+- **Infinite scroll** - Scrolls to trigger lazy loading
+- **Load more buttons** - Clicks "Show More" / "Load More"
+
+Progress detection uses SHA1 fingerprints of job URLs to detect when new content loads.
+
+### 2. HTML Reduction
+
+Three versions saved per page:
+
+| Version | Size | Purpose |
+|---------|------|---------|
+| `full` | ~500KB | Archive, debugging |
+| `reduced_focus` | ~100KB | LLM input (job containers only) |
+| `reduced_lite` | ~50KB | Scripts/styles stripped |
+
+The reduction algorithm scores containers by job-relevance (presence of job links, repetition patterns, content density) and keeps the highest-scoring ones.
+
+### 3. LLM Extraction
+
+The JSON parser handles malformed LLM responses with 4 fallback strategies:
+
+1. Direct `json.loads()`
+2. Strip markdown code fences
+3. Regex extraction
+4. Line-by-line recovery
+
+### 4. Database
+
+Upsert logic:
+- **Conflict key:** `job_url`
+- **Preserved:** `first_seen_at` (never updated)
+- **Updated:** `last_seen_at` (every crawl)
+
+---
+
+## Output
+
+After crawling, `out/<domain>/` contains:
 
 ```
 out/example.com/
 ├── full/
-│   ├── careers__a1b2c3d4.p001.html       # Initial page load
-│   ├── careers__a1b2c3d4.expanded.html   # After load-more/scroll
-│   ├── careers__a1b2c3d4.p002.html       # Page 2
-│   └── careers__a1b2c3d4.p003.html       # Page 3
-│
-├── reduced_focus/                         # Job-focused reduction (for LLM)
 │   ├── careers__a1b2c3d4.p001.html
+│   ├── careers__a1b2c3d4.expanded.html
+│   └── careers__a1b2c3d4.p002.html
+├── reduced_focus/
 │   └── ...
-│
-├── reduced_lite/                          # Minimal HTML (scripts stripped)
-│   ├── careers__a1b2c3d4.p001.html
+├── reduced_lite/
 │   └── ...
-│
-├── meta/                                  # Page metadata
-│   ├── careers__a1b2c3d4.p001.json       # {title, url, sha1, timestamps}
-│   └── ...
-│
-├── signals/                               # Reduction scoring
-│   ├── careers__a1b2c3d4.p001.json       # [{score, hasJobLinks, ...}]
-│   └── ...
-│
-├── llm/                                   # Extracted jobs (if --with-llm)
-│   ├── careers__a1b2c3d4.p001.jobs.json  # [{title, company, location, ...}]
-│   └── ...
-│
-└── careers__a1b2c3d4.manifest.json       # Crawl summary
-```
-
-### Manifest File Structure
-
-```json
-{
-  "seed_base": "careers__a1b2c3d4",
-  "mode": "pagination",
-  "stop_reason": "pages_cap",
-  "pages": [
-    {
-      "page_id": "p001",
-      "files": {
-        "full": "out/example.com/full/careers__a1b2c3d4.p001.html",
-        "focus": "out/example.com/reduced_focus/careers__a1b2c3d4.p001.html",
-        ...
-      },
-      "counts": {
-        "unique_jobs": 25,
-        "list_len": 25
-      },
-      "ts": 1704729600
-    },
-    ...
-  ],
-  "config": {
-    "jobs_max": 100,
-    "pages_max": 3,
-    ...
-  },
-  "ts": 1704729650
-}
+├── meta/
+│   └── careers__a1b2c3d4.p001.json    # {title, url, sha1, ts}
+├── signals/
+│   └── careers__a1b2c3d4.p001.json    # Reduction scores
+├── llm/
+│   └── careers__a1b2c3d4.p001.jobs.json
+└── careers__a1b2c3d4.manifest.json    # Crawl summary
 ```
 
 ---
 
-## 🧪 Testing Strategy
+## Database Schema
 
-**Current Test Coverage**: 148 tests passing
+`jobs_raw` table:
 
-### Test Organization
-
-```
-tests/
-├── unit/                              # Unit tests (no external dependencies)
-│   ├── test_crawler_url_utils.py     # 37 tests - URL parsing, normalization
-│   ├── test_llm_parsers.py           # 34 tests - JSON parsing strategies
-│   └── test_db_models.py             # 26 tests - Pydantic validation
-│
-└── integration/                       # Integration tests (require APIs)
-    ├── test_crawler_integration.py    # Playwright browser tests
-    ├── test_llm_integration.py        # Gemini API tests
-    └── test_db_integration.py         # Supabase database tests
-```
-
-### Unit Tests (No Dependencies)
-
-Run without any external services:
-```bash
-pytest tests/unit/ -v
-```
-
-These test:
-- URL parsing and canonicalization
-- JSON parsing with multiple fallback strategies
-- Pydantic model validation and normalization
-- Configuration loading
-- Logging setup
-
-### Integration Tests (Require Services)
-
-Run with Playwright, Gemini API, Supabase:
-```bash
-pytest tests/integration/ -v
-```
-
-These test:
-- End-to-end crawling workflow
-- LLM extraction with real API calls
-- Database upsert operations
-- Error handling and retries
+| Column | Type | Description |
+|--------|------|-------------|
+| `job_url` | text (PK) | Unique job URL |
+| `title` | text | Job title |
+| `company` | text | Company name |
+| `location` | text | Job location |
+| `country` | text | Country |
+| `seniority_bucket` | enum | intern/entry/mid/senior/director_vp/executive/unknown |
+| `employment_type` | text | Full-time, Part-time, etc. |
+| `office_or_remote` | text | Office, Remote, Hybrid |
+| `first_seen_at` | timestamp | First time job was seen |
+| `last_seen_at` | timestamp | Last time job was seen |
+| `source_domain` | text | Source website domain |
+| `raw_job` | jsonb | Full extracted data |
 
 ---
 
-## 🔧 Key Features
+## CI/CD
 
-### 1. Intelligent HTML Reduction
+GitHub Actions workflow (`.github/workflows/crawler.yml`):
 
-The crawler saves **3 versions** of each page to optimize for different use cases:
-
-| Version | Purpose | Size | Use Case |
-|---------|---------|------|----------|
-| **full** | Complete HTML | ~500KB | Archive, debugging |
-| **reduced_focus** | Job-focused containers | ~100KB | LLM extraction (cost optimization) |
-| **reduced_lite** | Scripts/styles stripped | ~50KB | Manual review, testing |
-
-Reduction uses smart scoring to keep containers with high job link density.
-
-### 2. Multi-Page Capture Strategy
-
-**Handles 3 pagination patterns**:
-1. **Numbered pagination** (p001, p002, p003...) - Click "Next" buttons
-2. **Infinite scroll** (expanded) - Scroll down to trigger lazy loading
-3. **Load More buttons** (expanded) - Click "Show More" / "Load More"
-
-**Progress detection**:
-- SHA1 fingerprinting of job URLs
-- Unique job count tracking
-- First/last job URL comparison
-- Scroll height monitoring
-
-### 3. Robust JSON Parsing
-
-LLM responses can be messy. The parser uses **4 fallback strategies**:
-
-1. **Direct JSON parse** - Try standard `json.loads()`
-2. **Extract from markdown** - Strip ```json code fences
-3. **Regex extraction** - Find JSON object/array with regex
-4. **Line-by-line recovery** - Parse each line as JSON object
-
-This ensures >99% successful extraction even with malformed responses.
-
-### 4. Type-Safe Data Pipeline
-
-**Pydantic models enforce validation** at every step:
-
-```
-Raw LLM JSON → JobPosting model → Validation → JobRecord → Database
-                    ↓
-                Catches errors:
-                • Missing required fields
-                • Invalid URLs
-                • Type mismatches
-                • Normalization (seniority, location)
-```
-
-### 5. Smart Database Upserts
-
-**Conflict resolution** on `job_url`:
-- **Preserve** `first_seen_at` from existing records
-- **Update** `last_seen_at` on every crawl
-- **Merge** extra fields without overwriting
-- **Track** job lifecycle (first posted vs last seen)
-
-### 6. Anti-Bot Detection
-
-**Crawler mimics real users**:
-- Random user agents from pool
-- Random viewport sizes
-- Natural mouse scrolling
-- Random delays between actions
-- Session state persistence
-- Disabled automation flags
+- **Schedule:** Every 6 hours
+- **Parallel execution:** Splits URLs into chunks of 5
+- **Secrets:** `GEMINI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`
 
 ---
 
-## 🐛 Troubleshooting
+## Costs
 
-### Issue: Import errors with Playwright
+Approximate per crawl (30 companies, ~100 pages):
 
-**Symptoms**: `ModuleNotFoundError: No module named 'playwright'`
+| Item | Cost |
+|------|------|
+| LLM input (~10MB HTML) | ~$0.10 |
+| LLM output (~1MB JSON) | ~$0.05 |
+| **Total per crawl** | ~$0.15 |
 
-**Solution**:
+Running 4x daily = ~$18/month
+
+---
+
+## Troubleshooting
+
+**Playwright import error**
 ```bash
 pip install playwright
 playwright install chromium
 ```
 
-### Issue: Gemini API rate limits
+**Gemini rate limits (429)**
+- Built-in exponential backoff handles this
+- Increase `LLM_RETRY_BASE_SLEEP` if persistent
 
-**Symptoms**: `429 Too Many Requests` or `ResourceExhausted`
-
-**Solution**:
-- The system has built-in exponential backoff retry
-- Increase `LLM_RETRY_BASE_SLEEP` in `.env`
-- Reduce batch size (process fewer domains at once)
-- Use `LLM_VERBOSE=1` to see retry attempts
-
-### Issue: Supabase connection fails
-
-**Symptoms**: `ValueError: SUPABASE_URL is required`
-
-**Solution**:
-- Check `.env` has `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`
+**Supabase connection fails**
+- Check `.env` has correct URL and key
 - Or disable: `SUPABASE_ENABLED=0`
-- Verify Supabase project is active and accessible
 
-### Issue: No jobs extracted from page
-
-**Symptoms**: LLM returns empty job list `{"jobs": []}`
-
-**Solution**:
-- Check `out/<domain>/reduced_focus/` - is HTML actually job listings?
-- Page may require JavaScript or be behind login
-- Try increasing `time_budget` for more scrolling
-- Check `signals/` JSON - are job links detected?
-
-### Issue: Tests failing
-
-**Symptoms**: Import errors or test failures
-
-**Solution**:
-```bash
-# Unit tests should work without external dependencies
-pytest tests/unit/ -v
-
-# Integration tests need services configured
-# Check .env has required API keys
-pytest tests/integration/ -v
-```
+**No jobs extracted**
+- Check `out/<domain>/reduced_focus/` - is it job listings?
+- Check `signals/` - are job links detected?
+- Increase `time_budget` for more scrolling
 
 ---
 
-## 🔐 Security & Best Practices
+## Module Documentation
 
-### Environment Variables
-
-- **Never commit** `.env` to git (already in `.gitignore`)
-- Use **service role key** for Supabase (not anon key)
-- Rotate API keys periodically
-- Use separate keys for dev/prod
-
-### Rate Limiting
-
-- Respect `robots.txt` (not enforced by default, add if needed)
-- Use `PER_DOMAIN_DELAY_MIN/MAX` for politeness
-- Don't hammer sites - default is 8-15 seconds between seeds
-- GitHub Actions runs every 6 hours (see `.github/workflows/`)
-
-### Data Privacy
-
-- Scrape only **public** career pages
-- Don't scrape personal data or applicant information
-- Store only job posting metadata (titles, descriptions, URLs)
+- [src/crawler/README.md](src/crawler/README.md) - Web crawler
+- [src/llm/README.md](src/llm/README.md) - LLM extraction
+- [src/db/README.md](src/db/README.md) - Database operations
+- [src/core/README.md](src/core/README.md) - Configuration and logging
 
 ---
 
-## 📈 Performance & Costs
+## License
 
-### Crawling Performance
-
-- **~13 companies** crawled in ~10-15 minutes
-- **3-5 pages** per company (initial + pagination)
-- **25-100 jobs** extracted per company
-- **HTML reduction** cuts LLM costs by ~80% (500KB → 100KB)
-
-### LLM API Costs (Gemini 1.5 Pro)
-
-**Approximate costs per crawl** (13 companies, 50 pages total):
-- Input: ~50 pages × 100KB = 5MB HTML → ~$0.10
-- Output: ~1000 jobs × 500 chars = 500KB JSON → $0.05
-- **Total: ~$0.15 per full crawl**
-
-Running every 6 hours = 4× daily = **~$0.60/day** or **~$18/month**
-
-### Optimization Tips
-
-- Use `LLM_MAX_HTML_CHARS` to cap input size
-- HTML reduction already saves ~80% on input tokens
-- Batch processing amortizes API overhead
-- Cache crawled HTML to re-run LLM without re-crawling
+Private and proprietary.
 
 ---
 
-## 🤝 Contributing
+## Author
 
-### Code Style
-
-- Follow PEP 8
-- Use type hints for all functions
-- Write docstrings for public APIs
-- Keep functions focused (single responsibility)
-
-### Testing Requirements
-
-- Write unit tests for new utility functions
-- Add integration tests for end-to-end flows
-- Ensure tests pass: `pytest`
-- Maintain >80% coverage for critical paths
-
-### Pull Request Process
-
-1. Create a feature branch
-2. Add tests for new functionality
-3. Update relevant README files
-4. Ensure all tests pass
-5. Submit PR with clear description
-
----
-
-## 📝 Additional Documentation
-
-- **[docs/analysis/ARCHITECTURE.md](docs/analysis/ARCHITECTURE.md)** - Detailed system architecture
-- **[docs/refactoring-plan.md](docs/refactoring-plan.md)** - Refactoring milestones
-- **[tests/README.md](tests/README.md)** - Testing documentation
-- **[configs/.env.example](configs/.env.example)** - Configuration reference
-
----
-
-## 📄 License
-
-This project is private and proprietary. Unauthorized use is prohibited.
-
----
-
-## 👤 Author
-
-**Vatsal Vatsyayan**
-- GitHub: [@vatsalvatsyayan](https://github.com/vatsalvatsyayan)
-
----
-
-## 🔄 Changelog
-
-### Recent Updates
-
-**2026-01-08**: Comprehensive refactoring and documentation
-- ✅ Modularized codebase into `crawler/`, `llm/`, `db/`, `core/`
-- ✅ Added 148 unit and integration tests
-- ✅ Created comprehensive README for each module
-- ✅ Implemented lazy loading for optional dependencies
-- ✅ Improved error handling and retry logic
-
-**Previous**: Initial implementation
-- Multi-site crawler with Playwright
-- LLM extraction with Gemini
-- Supabase database integration
-- GitHub Actions automation
-
----
-
-## ❓ FAQ
-
-**Q: Can I crawl sites that require login?**
-A: Not out of the box. You'd need to implement authentication in the crawler module. The system persists session state (`_storage_state.json`) per domain, so cookies are preserved.
-
-**Q: What if a site changes its HTML structure?**
-A: The crawler uses generic selectors (`[role='listitem']`, `a[href*='/jobs/']`) that work across many sites. For site-specific issues, you may need to adjust selectors in `src/crawler/page_analyzer.py`.
-
-**Q: Can I use a different LLM (OpenAI, Claude, etc.)?**
-A: Yes. Modify `src/llm/client.py` to use a different API. The parsing logic in `src/llm/parsers.py` is LLM-agnostic.
-
-**Q: How do I add more companies to crawl?**
-A: Add URLs to `configs/urls.txt`, one per line. The crawler automatically groups by domain.
-
-**Q: Can I run this locally without Supabase?**
-A: Yes. Set `SUPABASE_ENABLED=0` in `.env`. Jobs will be saved to `out/<domain>/llm/*.jobs.json` files.
-
----
-
-## 🙏 Acknowledgments
-
-- **Playwright** - Robust browser automation
-- **Google Gemini** - Powerful LLM for extraction
-- **Supabase** - Excellent PostgreSQL platform
-- **Pydantic** - Type-safe data validation
+Vatsal Vatsyayan - [@vatsalvatsyayan](https://github.com/vatsalvatsyayan)
