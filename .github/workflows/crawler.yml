@@ -2,16 +2,49 @@ name: Run job crawler
 
 on:
   schedule:
-    # Three times daily: 08:00, 16:00, 00:00 UTC
-    # (Approximately 3am, 11am, 7pm EST / 12am, 8am, 4pm PST)
-    - cron: "0 8,16,0 * * *"
+    # Twice daily at 8 AM and 3 PM Los Angeles time (America/Los_Angeles)
+    # LA is UTC-8 (PST) or UTC-7 (PDT during daylight saving)
+    # 8 AM LA = 15:00 UTC (PDT) or 16:00 UTC (PST)
+    # 3 PM LA = 22:00 UTC (PDT) or 23:00 UTC (PST)
+    # Using PDT times (March-November): 15:00 and 22:00 UTC
+    - cron: "0 15,22 * * *"
   # Allow manual runs from the Actions tab
   workflow_dispatch: {}
 
 jobs:
-  crawl:
+  # First job: count URLs and generate chunk matrix
+  setup:
     runs-on: ubuntu-latest
-    timeout-minutes: 100  # Maximum runtime: 100 minutes
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Calculate chunks (5 URLs per chunk)
+        id: set-matrix
+        run: |
+          URL_COUNT=$(grep -c '[^[:space:]]' configs/urls.txt)
+          URLS_PER_CHUNK=5
+          CHUNK_COUNT=$(( (URL_COUNT + URLS_PER_CHUNK - 1) / URLS_PER_CHUNK ))
+
+          echo "Total URLs: $URL_COUNT"
+          echo "URLs per chunk: $URLS_PER_CHUNK"
+          echo "Chunks needed: $CHUNK_COUNT"
+
+          # Generate matrix JSON: {"chunk": [0, 1, 2, ...]}
+          CHUNKS=$(seq 0 $((CHUNK_COUNT - 1)) | jq -cs '{"chunk": .}')
+          echo "matrix=$CHUNKS" >> $GITHUB_OUTPUT
+          echo "Matrix: $CHUNKS"
+
+  # Second job: crawl URLs in parallel chunks
+  crawl:
+    needs: setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30  # ~5 URLs should complete in ~20 minutes
+    strategy:
+      fail-fast: false  # Continue other jobs if one fails
+      matrix: ${{ fromJson(needs.setup.outputs.matrix) }}
 
     steps:
       - name: Checkout repo
@@ -77,14 +110,37 @@ jobs:
             echo "ERROR: configs/urls.txt not found"
             exit 1
           fi
-          echo "Found $(wc -l < configs/urls.txt) URLs to crawl"
+          echo "Found $(grep -c '[^[:space:]]' configs/urls.txt) URLs total"
+
+      - name: Create chunk-specific URL file
+        run: |
+          # Extract non-empty lines and split into chunks of 5
+          grep '[^[:space:]]' configs/urls.txt > /tmp/all_urls.txt
+          TOTAL=$(wc -l < /tmp/all_urls.txt)
+          URLS_PER_CHUNK=5
+          START=$(( ${{ matrix.chunk }} * URLS_PER_CHUNK + 1 ))
+          END=$(( START + URLS_PER_CHUNK - 1 ))
+
+          # Extract this chunk's URLs
+          sed -n "${START},${END}p" /tmp/all_urls.txt > /tmp/chunk_urls.txt
+
+          echo "Chunk ${{ matrix.chunk }}: URLs ${START}-${END} of ${TOTAL}"
+          echo "URLs in this chunk:"
+          cat /tmp/chunk_urls.txt
+
+          # Skip if chunk is empty (can happen with uneven splits)
+          if [ ! -s /tmp/chunk_urls.txt ]; then
+            echo "No URLs in this chunk, skipping"
+            echo "SKIP_CHUNK=true" >> $GITHUB_ENV
+          fi
 
       - name: Run crawler (headless)
+        if: env.SKIP_CHUNK != 'true'
         env:
           LLM_MAX_HTML_CHARS: 500000
         run: |
           python -m src.crawler.multi_capture \
-            --urls configs/urls.txt \
+            --urls /tmp/chunk_urls.txt \
             --headless \
             --with-llm \
             --loadmore-max 15
@@ -93,7 +149,7 @@ jobs:
         if: always()  # Upload even if crawler fails
         uses: actions/upload-artifact@v4
         with:
-          name: crawl-results-${{ github.run_number }}
+          name: crawl-results-${{ github.run_number }}-chunk-${{ matrix.chunk }}
           path: |
             out/*/manifest.json
             out/*/llm/*.jobs.json
