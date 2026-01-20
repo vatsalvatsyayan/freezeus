@@ -12,7 +12,9 @@ from typing import List, Optional, Dict, Any, Tuple
 from src.core.logging import get_logger
 from src.core.error_logger import get_error_logger
 from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
-from src.utils.url_utils import normalize_job_url
+from src.core.process_logger import get_process_logger
+from src.core.process_models import ProcessStep
+from src.utils.url_utils import normalize_job_url, extract_company_name
 from src.llm.parsers import parse_json_robust, normalize_and_dedupe
 from src.llm.prompt_loader import load_extraction_prompt
 from src.llm.client import call_gemini_with_retries
@@ -207,7 +209,9 @@ def extract_one_focus_html(
     domain_dir: Path,
     focus_html_path: Path,
     source_url: Optional[str] = "",
-    page_title: Optional[str] = ""
+    page_title: Optional[str] = "",
+    run_id: Optional[str] = None,
+    company: Optional[str] = None
 ) -> Path:
     """
     Extract jobs from single HTML file and write to JSON.
@@ -221,6 +225,8 @@ def extract_one_focus_html(
         focus_html_path: Path to reduced_focus HTML file
         source_url: Original source URL
         page_title: Page title
+        run_id: Optional run ID for process logging correlation
+        company: Optional company name for logging
 
     Returns:
         Path to written JSON file
@@ -234,6 +240,10 @@ def extract_one_focus_html(
         True
     """
     domain_dir = Path(domain_dir)
+    domain_name = str(domain_dir.name)
+    company_name = company or extract_company_name(domain_name)
+    process_logger = get_process_logger()
+
     llm_dir = domain_dir / "llm"
     llm_dir.mkdir(parents=True, exist_ok=True)
 
@@ -249,9 +259,18 @@ def extract_one_focus_html(
     _log(f"Reading {focus_html_path.name}")
     html_text = _read_text(focus_html_path)
 
+    # Log Step 4: LLM_START
+    if run_id:
+        process_logger.log_step(
+            run_id=run_id,
+            step=ProcessStep.LLM_START,
+            company=company_name,
+            domain=domain_name,
+            metadata={"file": focus_html_path.name, "html_length": len(html_text)}
+        )
+
     # Extract jobs
     _log("Extracting jobs via Gemini API")
-    domain_name = str(domain_dir.name)
     raw = extract_jobs_from_html(html_text, source_url or "", page_title or "", domain=domain_name)
 
     # Normalize and deduplicate
@@ -270,6 +289,18 @@ def extract_one_focus_html(
             "jobs": raw.get("jobs", []),
             "warning": f"normalize_error: {e}"
         }
+
+    jobs_found = len(cleaned.get('jobs', []))
+
+    # Log Step 5: LLM_COMPLETE
+    if run_id:
+        process_logger.log_step(
+            run_id=run_id,
+            step=ProcessStep.LLM_COMPLETE,
+            company=company_name,
+            domain=domain_name,
+            metadata={"jobs_found": jobs_found, "file": out_json.name}
+        )
 
     # URL normalization post-processing
     for job in cleaned.get("jobs", []):
@@ -294,7 +325,7 @@ def extract_one_focus_html(
             if is_supabase_enabled():
                 job_count = len(cleaned.get('jobs', []))
                 _log(f"Upserting {job_count} jobs to Supabase for {domain_name}")
-                upsert_jobs_for_page(cleaned, domain=domain_name)
+                upsert_jobs_for_page(cleaned, domain=domain_name, run_id=run_id, company=company_name)
             else:
                 _log("Supabase disabled or client init failed")
         except Exception as e:
@@ -318,7 +349,7 @@ def extract_one_focus_html(
     return out_json
 
 
-def extract_all_focus_htmls(domain_dir: Path) -> List[Path]:
+def extract_all_focus_htmls(domain_dir: Path, run_id: Optional[str] = None) -> List[Path]:
     """
     Batch extract jobs from all HTML files in domain directory.
 
@@ -327,6 +358,7 @@ def extract_all_focus_htmls(domain_dir: Path) -> List[Path]:
 
     Args:
         domain_dir: Domain output directory
+        run_id: Optional run ID for process logging correlation
 
     Returns:
         List of written JSON file paths
@@ -337,6 +369,9 @@ def extract_all_focus_htmls(domain_dir: Path) -> List[Path]:
         True
     """
     domain_dir = Path(domain_dir)
+    domain_name = str(domain_dir.name)
+    company_name = extract_company_name(domain_name)
+
     focus_dir = domain_dir / "reduced_focus"
     meta_dir = domain_dir / "meta"
     llm_dir = domain_dir / "llm"
@@ -372,7 +407,7 @@ def extract_all_focus_htmls(domain_dir: Path) -> List[Path]:
 
         # Extract jobs
         try:
-            out_path = extract_one_focus_html(domain_dir, html_file, src_url, page_title)
+            out_path = extract_one_focus_html(domain_dir, html_file, src_url, page_title, run_id=run_id, company=company_name)
             written.append(out_path)
         except Exception as e:
             logger.error(f"Unhandled error processing {html_file.name}: {e}. Continuing...")

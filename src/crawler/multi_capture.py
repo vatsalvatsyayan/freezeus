@@ -53,6 +53,13 @@ from src.llm.llm_helper import extract_all_focus_htmls
 from src.core.error_logger import get_error_logger
 from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
 
+# === Process logging ===
+from src.core.process_logger import get_process_logger
+from src.core.process_models import ProcessStep
+
+# === URL utilities ===
+from src.utils.url_utils import extract_company_name
+
 BASE_OUT = Path("out")
 BASE_OUT.mkdir(exist_ok=True, parents=True)
 
@@ -122,7 +129,7 @@ async def domain_context(pw, domain: str, headed: bool):
 # -------------------
 # LLM hook (batch, after crawl)
 # -------------------
-def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] = None):
+def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] = None, run_id: Optional[str] = None):
     """
     Walk out/<domain>/reduced_focus and run Gemini extraction for each domain.
     Skips files that already have llm/<base>.jobs.json (handled in helper).
@@ -131,6 +138,7 @@ def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] =
     Args:
         out_root: Root output directory (typically Path("out"))
         domains_to_process: Optional list of domain names to process
+        run_id: Optional run ID for process logging correlation
     """
     out_root = Path(out_root)
     if domains_to_process:
@@ -142,7 +150,7 @@ def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] =
     for domain_dir in candidates:
         print(f"\n=== LLM batch: {domain_dir.name} ===")
         try:
-            written_paths = extract_all_focus_htmls(domain_dir)
+            written_paths = extract_all_focus_htmls(domain_dir, run_id=run_id)
             for p in written_paths:
                 print(f"[LLM saved] {p}")
             total += len(written_paths)
@@ -159,7 +167,8 @@ def llm_batch_postpass(out_root: Path, domains_to_process: Optional[List[str]] =
 # -------------------
 async def crawl_seed(page: Page, seed_url: str,
                      jobs_max=200, time_budget=75, pages_max=3,
-                     loadmore_max=5, scroll_max=20, no_change_cap=2):
+                     loadmore_max=5, scroll_max=20, no_change_cap=2,
+                     run_id: Optional[str] = None, company: Optional[str] = None):
     """
     Crawl a single seed URL with pagination/infinite scroll support.
 
@@ -177,15 +186,40 @@ async def crawl_seed(page: Page, seed_url: str,
         loadmore_max: Maximum load-more clicks
         scroll_max: Maximum scroll attempts
         no_change_cap: Stop after N rounds with no change
+        run_id: Optional run ID for process logging correlation
+        company: Optional company name for logging
     """
+    domain = domain_of(seed_url)
+    company_name = company or extract_company_name(domain)
+    process_logger = get_process_logger()
+
+    # Log Step 1: CRAWL_START
+    if run_id:
+        process_logger.log_step(
+            run_id=run_id,
+            step=ProcessStep.CRAWL_START,
+            company=company_name,
+            domain=domain,
+            metadata={"url": seed_url, "jobs_max": jobs_max, "time_budget": time_budget, "pages_max": pages_max}
+        )
+
     # p001
     full_html, red_focus, red_lite, signals, meta = await navigate_seed(page, seed_url)
-    domain = domain_of(seed_url)
     if not full_html:
         write_outputs(domain, seed_url, full_html or "", red_focus or "", red_lite or "", signals, meta, page_id="p001")
         return
 
     write_outputs(domain, seed_url, full_html, red_focus, red_lite, signals, meta, page_id="p001")
+
+    # Log Step 3: HTML_EXTRACTED (after p001)
+    if run_id:
+        process_logger.log_step(
+            run_id=run_id,
+            step=ProcessStep.HTML_EXTRACTED,
+            company=company_name,
+            domain=domain,
+            metadata={"page_id": "p001", "html_length": len(full_html)}
+        )
 
     seed_base = base_name_for(seed_url, meta.get("title"))
     entries = [{
@@ -315,13 +349,23 @@ async def crawl_seed(page: Page, seed_url: str,
         cfg={"pages_max": pages_max},
     )
 
+    # Log Step 2: CRAWL_COMPLETE
+    if run_id:
+        process_logger.log_step(
+            run_id=run_id,
+            step=ProcessStep.CRAWL_COMPLETE,
+            company=company_name,
+            domain=domain,
+            metadata={"pages_seen": pages_seen, "stop_reason": stop_reason, "entries_count": len(entries)}
+        )
+
 
 # -------------------
 # Domain loop (returns list of domains processed)
 # -------------------
 async def crawl(urls: List[str], headed: bool,
                 jobs_max=100, time_budget=75, pages_max=3,
-                loadmore_max=5, scroll_max=20, no_change_cap=2) -> List[str]:
+                loadmore_max=5, scroll_max=20, no_change_cap=2) -> tuple[List[str], str]:
     """
     Crawl multiple URLs, grouping by domain.
 
@@ -336,16 +380,22 @@ async def crawl(urls: List[str], headed: bool,
         no_change_cap: Stop after N rounds with no change
 
     Returns:
-        List of domain names that were successfully processed
+        Tuple of (list of domain names processed, run_id for process logging)
     """
     by_domain: Dict[str, List[str]] = {}
     for u in urls:
         by_domain.setdefault(domain_of(u), []).append(u)
 
+    # Generate run_id for this crawl session
+    process_logger = get_process_logger()
+    run_id = process_logger.generate_run_id()
+
     processed_domains: List[str] = []
     async with async_playwright() as pw:
         for domain, durls in by_domain.items():
             print(f"\n=== Domain: {domain} ({len(durls)} seeds) ===")
+            # Extract company name from domain
+            company_name = extract_company_name(domain)
             try:
                 async with domain_context(pw, domain, headed=headed) as ctx:
                     processed_domains.append(domain)
@@ -354,7 +404,7 @@ async def crawl(urls: List[str], headed: bool,
                         print(f"[seed] {domain} → {url}")
                         start = time.time()
                         try:
-                            await crawl_seed(page, url, jobs_max, time_budget, pages_max, loadmore_max, scroll_max, no_change_cap)
+                            await crawl_seed(page, url, jobs_max, time_budget, pages_max, loadmore_max, scroll_max, no_change_cap, run_id=run_id, company=company_name)
                         except Exception as e:
                             print(f"[error] seed failed for {url}: {e}")
                             traceback.print_exc()
@@ -397,7 +447,7 @@ async def crawl(urls: List[str], headed: bool,
                 # do NOT add to processed_domains if everything blew up before any seed
                 # (we only appended inside the with-block)
                 continue
-    return processed_domains
+    return processed_domains, run_id
 
 
 # -------------------
@@ -429,13 +479,15 @@ if __name__ == "__main__":
 
     headed = args.headed and not args.headless
 
+    run_id = None
     try:
         # First: crawl (headed unless --headless)
-        domains_done = asyncio.run(crawl(
+        domains_done, run_id = asyncio.run(crawl(
             targets, headed=headed,
             jobs_max=args.jobs_max, time_budget=args.time_budget, pages_max=args.pages_max,
             loadmore_max=args.loadmore_max, scroll_max=args.scroll_max, no_change_cap=args.no_change_cap
         ))
+        print(f"\n[crawl complete] run_id={run_id}")
     except KeyboardInterrupt:
         print("\n[abort] KeyboardInterrupt – stopping crawl.")
         sys.exit(1)
@@ -447,7 +499,7 @@ if __name__ == "__main__":
     # Then: LLM batch postpass over domains we just touched
     if args.with_llm and domains_done:
         try:
-            llm_batch_postpass(BASE_OUT, domains_to_process=domains_done)
+            llm_batch_postpass(BASE_OUT, domains_to_process=domains_done, run_id=run_id)
         except KeyboardInterrupt:
             print("\n[abort] KeyboardInterrupt – stopping LLM batch.")
         except Exception as e:

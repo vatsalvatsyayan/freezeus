@@ -160,3 +160,49 @@ def is_absolute_url(url: str) -> bool:
         return bool(result.scheme and result.netloc)
     except Exception:
         return False
+
+
+def extract_company_name(domain: str) -> str:
+    """
+    Extract a human-readable company name from a domain.
+
+    Removes common job-related subdomains/prefixes and formats the result.
+
+    Args:
+        domain: Domain name (e.g., "jobs.dropbox.com", "careers-google.com")
+
+    Returns:
+        Human-readable company name (e.g., "Dropbox", "Google")
+
+    Examples:
+        >>> extract_company_name("jobs.dropbox.com")
+        'Dropbox'
+
+        >>> extract_company_name("careers.google.com")
+        'Google'
+
+        >>> extract_company_name("stripe-jobs.com")
+        'Stripe'
+
+        >>> extract_company_name("my-company.com")
+        'My Company'
+    """
+    if not domain:
+        return "Unknown"
+
+    # Get the first part of the domain (before first dot)
+    base = domain.split('.')[0]
+
+    # Remove common job-related words
+    job_words = ['jobs', 'careers', 'career', 'hiring', 'join', 'work']
+    for word in job_words:
+        base = base.replace(word, '')
+
+    # Clean up dashes and underscores
+    base = base.replace('-', ' ').replace('_', ' ')
+
+    # Remove extra whitespace and title case
+    base = ' '.join(base.split()).strip().title()
+
+    # Return domain if nothing left after cleaning
+    return base if base else domain
