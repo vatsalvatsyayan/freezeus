@@ -6,10 +6,14 @@ from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 from pydantic import ValidationError
+from typing import Optional
 from src.core.logging import get_logger
 from src.core.error_logger import get_error_logger
 from src.core.error_models import ErrorComponent, ErrorSeverity, ErrorType, ErrorStage
+from src.core.process_logger import get_process_logger
+from src.core.process_models import ProcessStep
 from src.db.models import JobPosting, JobRecord, PageData
+from src.utils.url_utils import extract_company_name
 
 # Load the same configs/.env as the rest of your project
 load_dotenv(dotenv_path=Path("configs/.env"), override=True)
@@ -63,7 +67,7 @@ def is_supabase_enabled() -> bool:
     """True if a client can be created and used."""
     return _init_client() is not None
 
-def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
+def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str, run_id: Optional[str] = None, company: Optional[str] = None) -> None:
     """
     Push all jobs from one LLM-cleaned page into Supabase with Pydantic validation.
 
@@ -83,6 +87,8 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
     Args:
         cleaned_page: Page data with jobs list
         domain: Source domain name
+        run_id: Optional run ID for process logging correlation
+        company: Optional company name for logging
 
     Returns:
         None
@@ -229,6 +235,17 @@ def upsert_jobs_for_page(cleaned_page: Dict[str, Any], domain: str) -> None:
 
         client.table(JOBS_TABLE).upsert(rows, on_conflict="job_url").execute()
         logger.info(f"Successfully upserted {len(rows)} jobs from {domain}")
+
+        # Log Step 6: DB_COMPLETE
+        if run_id:
+            company_name = company or extract_company_name(domain)
+            get_process_logger().log_step(
+                run_id=run_id,
+                step=ProcessStep.DB_COMPLETE,
+                company=company_name,
+                domain=domain,
+                metadata={"jobs_saved": len(rows), "skipped": skipped, "validation_errors": validation_errors}
+            )
     except Exception as e:
         # Fail *softly*: we don't want to kill the whole crawl
         logger.error(f"Upsert error ({domain}): {e}")
