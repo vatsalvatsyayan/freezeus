@@ -1,38 +1,36 @@
-https://www.atlassian.com/company/careers/all-jobs?team=&location=United%20States&search=
-https://job-boards.greenhouse.io/twilio?offices%5B%5D=436&offices%5B%5D=1245
+https://www.atlassian.com/company/careers/all-jobs
+https://job-boards.greenhouse.io/twilio
 https://www.shopify.com/careers/disciplines/engineering-data
-https://careers.zoom.us/jobs/search?page=1&country_codes%5B%5D=US&query=
+https://careers.zoom.us/jobs/search
 https://jobs.intuit.com/search-jobs/
 https://workday.wd5.myworkdayjobs.com/Workday
-https://www.okta.com/company/careers/job-listing/?department=4183&location=2626
+https://www.okta.com/company/careers/job-listing/
 https://broadcom.wd1.myworkdayjobs.com/External_Career
 
-https://apply.deloitte.com/en_US/careers/SearchJobs/
+https://apply.deloitte.com/en_US/careers/SearchJobs
 https://jobs.us.pwc.com/search-jobs
-https://eyglobal.yello.co/job_boards/c1riT--B2O-KySgYWsZO1Q
+https://eyglobal.yello.co/job_boards/c1riT–B2O-KySgYWsZO1Q
 https://www.kpmguscareers.com/job-search/?career-level=&career-level-parents=Early%20Career%7C&spage=1#
 
 https://nvidia.wd5.myworkdayjobs.com/NVIDIAExternalCareerSite
-https://openai.com/careers/search/
+https://openai.com/careers/search
 https://jobs.lever.co/palantir
 https://www.databricks.com/company/careers/open-positions
 https://careers.snowflake.com/us/en/search-results
 https://careers.servicenow.com/jobs/
-https://jobs.sap.com/search/
+https://jobs.sap.com/search/?createNewAlert=false&q=&locationsearch=&optionsFacetsDD_department=&optionsFacetsDD_customfield3=Graduate&optionsFacetsDD_country=
 https://www.ibm.com/careers/search
-https://intel.wd1.myworkdayjobs.com/en-US/External
 
-https://www.google.com/about/careers/applications/jobs/results?location=United%20States
-https://apply.careers.microsoft.com/careers
+https://www.google.com/about/careers/applications/jobs/results
+https://jobs.careers.microsoft.com/global/en/search
 https://www.amazon.jobs/en/search
 https://www.metacareers.com/jobs/
 https://jobs.apple.com/en-us/search
 https://explore.jobs.netflix.net/careers
 https://careers.salesforce.com/en/jobs/
 https://careers.adobe.com/us/en/c/engineering-and-product-jobs
-https://careers.oracle.com/en/sites/jobsearch/jobs
-https://www.uber.com/us/en/careers/teams/university/
-https://careers.airbnb.com/positions/?_offices=united-states
+https://careers.oracle.com/en/sites/jobsearch/jobs?lastSelectedFacet=CATEGORIES&selectedCategoriesFacet=300000001917346
+https://www.uber.com/us/en/careers/teams/university/?uclick_id=1996e032-7da8-44cd-aa8b-9a7d7d1118af
+https://careers.airbnb.com/positions/
 
-https://www.linkedin.com/jobs/search/
 https://stripe.com/jobs/search
