@@ -90,6 +90,56 @@ async def snapshot_current(page: Page) -> Tuple[str, str, str, List[Any], Dict[s
     return full_html, red_focus, red_lite, signals, meta
 
 
+async def dismiss_cookie_consent(page: Page) -> None:
+    """
+    Dismiss common cookie consent banners and overlays.
+
+    Tries to accept/close OneTrust and other common consent dialogs.
+    Silently no-ops if no consent banner is present.
+
+    Args:
+        page: Playwright page instance
+    """
+    accept_selectors = [
+        # OneTrust "Accept All"
+        '#onetrust-accept-btn-handler',
+        'button#onetrust-accept-btn-handler',
+        'button:has-text("Accept All")',
+        'button:has-text("Accept all")',
+        'button:has-text("Accept All Cookies")',
+        'button:has-text("I Accept")',
+        'button:has-text("Agree")',
+        'button:has-text("I Agree")',
+        # OneTrust close/confirm
+        '.ot-pc-refuse-all-handler',
+        '#accept-recommended-btn-handler',
+    ]
+    for sel in accept_selectors:
+        try:
+            loc = page.locator(sel).first
+            if await loc.count() and await loc.is_visible():
+                await loc.click(timeout=3000)
+                print(f"[consent] dismissed via: {sel}")
+                await page.wait_for_timeout(500)
+                return
+        except Exception:
+            continue
+
+    # Fallback: remove the OneTrust overlay via JS if it's still blocking clicks
+    try:
+        removed = await page.evaluate("""
+            (function() {
+                const overlay = document.querySelector('.onetrust-pc-dark-filter, #onetrust-consent-sdk');
+                if (overlay) { overlay.remove(); return true; }
+                return false;
+            })()
+        """)
+        if removed:
+            print("[consent] removed OneTrust overlay via JS")
+    except Exception:
+        pass
+
+
 async def navigate_seed(page: Page, url: str) -> Tuple[str, str, str, List[Any], Dict[str, Any]]:
     """
     Navigate to a seed URL and capture its content.
@@ -116,6 +166,7 @@ async def navigate_seed(page: Page, url: str) -> Tuple[str, str, str, List[Any],
             print(f"[nav] {url} (attempt {attempt + 1}/{max_retries})")
             await page.goto(url, wait_until="domcontentloaded", timeout=nav_timeout_ms)
             await page.wait_for_timeout(random.randint(1200, 2000))
+            await dismiss_cookie_consent(page)
             break
         except Exception as e:
             if attempt == max_retries - 1:
@@ -212,7 +263,7 @@ async def click_next_page(page: Page) -> bool:
                 link = page.get_by_role("link", name=re.compile(f".*{re.escape(pattern)}.*", re.I)).first
                 if await link.count() > 0:
                     if await link.is_visible() and await link.is_enabled():
-                        await link.click()
+                        await link.click(timeout=5000)
                         print(f"[click] next: role=link name~={pattern}")
                         await page.wait_for_timeout(random.randint(900, 1600))
                         return True
@@ -225,7 +276,7 @@ async def click_next_page(page: Page) -> bool:
                 link = page.get_by_role("button", name=re.compile(f".*{re.escape(pattern)}.*", re.I)).first
                 if await link.count() > 0:
                     if await link.is_visible() and await link.is_enabled():
-                        await link.click()
+                        await link.click(timeout=5000)
                         print("[click] next: role=button name~=next")
                         await page.wait_for_timeout(random.randint(900, 1600))
                         return True
@@ -255,14 +306,38 @@ async def click_next_page(page: Page) -> bool:
         'nav a:has-text("›")',
         'nav button:has-text("»")',
         'nav a:has-text("»")',
+
+        # JS-driven pagination where href="" (e.g. BlackRock) — no role="link" from ARIA
+        'nav a:has-text("Next")',
+        '.pagination a:has-text("Next")',
+        'a.next',
+        '.pagination .next',
     ]
 
     for sel in candidates:
         try:
             loc = page.locator(sel).first
             if await loc.count() and await loc.is_visible() and await loc.is_enabled():
-                await loc.click()
+                await loc.click(timeout=5000)
                 print(f"[click] next: {sel}")
+                await page.wait_for_timeout(random.randint(900, 1600))
+                return True
+        except Exception:
+            continue
+
+    # ---- 3) JS click fallback — bypasses pointer-event overlays (e.g. cookie banners) ----
+    js_candidates = ['.pagination .next', 'a.next', 'nav a[class*="next"]']
+    for sel in js_candidates:
+        try:
+            clicked = await page.evaluate(f"""
+                (function() {{
+                    const el = document.querySelector('{sel}');
+                    if (el) {{ el.click(); return true; }}
+                    return false;
+                }})()
+            """)
+            if clicked:
+                print(f"[click] next via JS: {sel}")
                 await page.wait_for_timeout(random.randint(900, 1600))
                 return True
         except Exception:
