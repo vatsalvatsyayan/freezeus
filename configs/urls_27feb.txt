@@ -36,3 +36,12 @@ https://careers.airbnb.com/positions/?_offices=united-states
 
 https://www.linkedin.com/jobs/search/
 https://stripe.com/jobs/search
+https://careers.datadoghq.com/all-jobs/
+https://careers.confluent.io/jobs/united_states?page=1
+https://www.okta.com/company/careers/job-listing/?department=All&location=2626
+https://www.coinbase.com/careers/positions
+https://www.cloudflare.com/careers/jobs/?department=Early+Talent
+https://www.mongodb.com/company/careers/teams/engineering
+https://careers.cisco.com/global/en/c/product-and-engineering-jobs
+https://www.lifeatspotify.com/jobs?l=new-york&l=los-angeles&l=boston&l=miami&l=united-states-of-america-home-mix
+https://redditinc.com/careers?department=Engineering
